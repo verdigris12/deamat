@@ -1,4 +1,5 @@
 from matplotlib import pyplot as plt
+import pyglet
 
 
 class GUIState():
@@ -20,6 +21,7 @@ class GUIState():
         self.show_demo_window = False
         self.load_seq_ids = False
         self.statusline = 'Ready'
+        self.batch = pyglet.graphics.Batch()
 
     def set_plt_style(self, style):
         self.plt_style = style

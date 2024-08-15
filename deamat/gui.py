@@ -22,8 +22,10 @@ class GUI():
         impl = create_renderer(window)
 
         self.window = window
+        self.main_window_fullscreen = False
+        self.main_window_name = "Main"
         self.impl = impl
-        self.fps = 120.0
+        self.fps = 60.0
         self.executor = ProcessPoolExecutor()
         self.job_mutex = Lock()
         self.job_counter = 0
@@ -33,7 +35,6 @@ class GUI():
             'width': self.window.get_size()[0],
             'height': self.window.get_size()[1]
         }
-        state.batch = pyglet.graphics.Batch()
 
     def submit_job(self, job, *args, callback=None):
         future = self.executor.submit(job, *args)
@@ -74,7 +75,10 @@ class GUI():
         self.impl.process_inputs()
         imgui.new_frame()
         self.state.update_window(self.window)
-        self.__create_main_window()
+        if self.main_window_fullscreen:
+            self.__create_main_window()
+        else:
+            imgui.begin("Main")
         self.job_mutex.acquire()
         self.update(self.state, self, dt)
         self.job_mutex.release()
@@ -96,6 +100,7 @@ class GUI():
             self.__update_ui(dt)
             self.window.clear()
             imgui.render()
+            self.state.batch.draw()
             self.impl.render(imgui.get_draw_data())
         pyglet.clock.schedule_interval(draw, 1 / self.fps)
         pyglet.app.run()
