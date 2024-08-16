@@ -5,20 +5,23 @@ from imgui_bundle import portable_file_dialogs as pfd
 import pickle
 import multiprocessing
 import matplotlib.pyplot as plt
+import plotly.tools as tls
 
 
 def open_figure_in_pyplot(pickled_figure):
     matplotlib.use('TkAgg')
     fig = pickle.loads(pickled_figure)
-    new_fig = plt.figure()
-    new_ax = new_fig.add_subplot(111)
-    for ax in fig.get_axes():
-        for line in ax.get_lines():
-            new_ax.plot(line.get_xdata(), line.get_ydata(), label=line.get_label())
-    new_ax.legend()
-    plt.draw()
+    dummy = plt.figure()
+    new_manager = dummy.canvas.manager
+    new_manager.canvas.figure = fig
+    fig.set_canvas(new_manager.canvas)
     plt.show()
 
+def open_figure_in_plotly(pickled_figure):
+    matplotlib.use('TkAgg')
+    fig = pickle.loads(pickled_figure)
+    plotly_fig = tls.mpl_to_plotly(fig)
+    plotly_fig.show()
 
 def im_plot_figure(state, figname, width=None, height=None, autosize=False):
     fig_obj = state.figures[figname]
@@ -39,6 +42,11 @@ def im_plot_figure(state, figname, width=None, height=None, autosize=False):
     if imgui.button('Open in pyplot'):
         pickled_figure = pickle.dumps(figure)
         p = multiprocessing.Process(target=open_figure_in_pyplot, args=(pickled_figure,))
+        p.start()
+    imgui.same_line()
+    if imgui.button('Open in plotly'):
+        pickled_figure = pickle.dumps(figure)
+        p = multiprocessing.Process(target=open_figure_in_plotly, args=(pickled_figure,))
         p.start()
     imgui.same_line()
     if imgui.button('Save figure'):
