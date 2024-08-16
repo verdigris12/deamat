@@ -4,14 +4,12 @@ import imgui
 import imgui_datascience as imgui_ds
 from imgui_bundle import portable_file_dialogs as pfd
 import pickle
-from bokeh.plotting import figure, show
-from bokeh.io import output_notebook
 import matplotlib.pyplot as plt
 
 
 def open_figure_in_pyplot(pickled_figure):
     matplotlib.use('TkAgg', force=True)
-    # plt.ion()
+    plt.ion()
     fig = pickle.loads(pickled_figure)
     dummy = plt.figure()
     new_manager = dummy.canvas.manager
@@ -23,12 +21,15 @@ def open_figure_in_pyplot(pickled_figure):
 
 
 def open_figure_in_bokeh(pickled_figure):
+    from bokeh.plotting import show
+    from bokeh import mpl
+
     fig = pickle.loads(pickled_figure)
-    output_notebook()
-    p = figure(title="Bokeh Figure")
-    # Assuming fig is a matplotlib figure, we need to convert it to Bokeh
-    # This is a placeholder for actual conversion logic
-    show(p)
+    bokeh_fig = mpl.to_bokeh(fig)
+    show(bokeh_fig)
+
+
+def im_plot_figure(state, figname, width=None, height=None, autosize=False):
     fig_obj = state.figures[figname]
     figure = fig_obj['figure']
     title = fig_obj['title']
@@ -54,8 +55,9 @@ def open_figure_in_bokeh(pickled_figure):
         p = multiprocessing.Process(target=open_figure_in_bokeh, args=(pickled_figure,))
         p.start()
     imgui.same_line()
-    fpath = pfd.save_file(title + '.png', state.figure_path).result()
-    if len(fpath) > 0:
-        state.figure_path = fpath
-        figure.savefig(fpath)
+    if imgui.button('Save figure'):
+        fpath = pfd.save_file(title + '.png', state.figure_path).result()
+        if len(fpath) > 0:
+            state.figure_path = fpath
+            figure.savefig(fpath)
     imgui_ds.imgui_fig.fig(figure=figure, title='')
