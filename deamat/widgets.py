@@ -8,7 +8,7 @@ import matplotlib.pyplot as plt
 
 
 def open_figure_in_pyplot(pickled_figure):
-    matplotlib.use('Qt5Agg')
+    matplotlib.use('TkAgg')
     fig = pickle.loads(pickled_figure)
     dummy = plt.figure()
     new_manager = dummy.canvas.manager
