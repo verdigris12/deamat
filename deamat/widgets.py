@@ -9,16 +9,13 @@ import matplotlib.pyplot as plt
 
 def open_figure_in_pyplot(pickled_figure):
     matplotlib.use('TkAgg', force=True)
-    plt.ion()
     fig = pickle.loads(pickled_figure)
     dummy = plt.figure()
     new_manager = dummy.canvas.manager
     new_manager.canvas.figure = fig
     fig.set_canvas(new_manager.canvas)
-    print(fig)
-    fig.show()
-    while plt.fignum_exists(fig.number):
-        plt.pause(0.1)
+    print(matplotlib.get_backend())
+    plt.show()
 
 
 def open_figure_in_bokeh(pickled_figure):
