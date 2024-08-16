@@ -54,8 +54,8 @@ def open_figure_in_bokeh(pickled_figure):
         p = multiprocessing.Process(target=open_figure_in_bokeh, args=(pickled_figure,))
         p.start()
     imgui.same_line()
-        fpath = pfd.save_file(title + '.png', state.figure_path).result()
-        if len(fpath) > 0:
-            state.figure_path = fpath
-            figure.savefig(fpath)
+    fpath = pfd.save_file(title + '.png', state.figure_path).result()
+    if len(fpath) > 0:
+        state.figure_path = fpath
+        figure.savefig(fpath)
     imgui_ds.imgui_fig.fig(figure=figure, title='')
