@@ -14,8 +14,10 @@ def open_figure_in_pyplot(pickled_figure):
     new_manager = dummy.canvas.manager
     new_manager.canvas.figure = fig
     fig.set_canvas(new_manager.canvas)
-    plt.ion()  # Enable interactive mode
+    print(fig)
     fig.show()
+    # plt.ion()
+    plt.show()
 
 
 def im_plot_figure(state, figname, width=None, height=None, autosize=False):
