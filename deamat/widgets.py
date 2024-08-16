@@ -8,8 +8,8 @@ import matplotlib.pyplot as plt
 
 
 def open_figure_in_pyplot(pickled_figure):
-    matplotlib.use('TkAgg')
-    plt.ion()
+    matplotlib.use('TkAgg', force=True)
+    # plt.ion()
     fig = pickle.loads(pickled_figure)
     dummy = plt.figure()
     new_manager = dummy.canvas.manager
