@@ -49,7 +49,7 @@ class MPLView():
         if clicked:
             mouse_x, mouse_y = imgui.get_mouse_pos()
             ax = state.fig.gca()
-            self.fig_x, self.fig_y = ax.transData.inverted().transform((mouse_x, mouse_y))
+            self.state.fig_x, self.state.fig_y = ax.transData.inverted().transform((mouse_x, mouse_y))
 
     def run(self):
         self.gui.run()
