@@ -52,9 +52,10 @@ class MPLView():
         # Left column for the figure
         if not state.colwidth or state.colwidth != imgui.get_window_width() - 200:
             imgui.set_column_width(-1, imgui.get_window_width() - 200)
-            state.colwidth = imgui.get_window_width() - 200
+            state.colwidth = imgui.get_window_width()
+            fig.set_figwidth(state.colwidth / fig.dpi)
+            print('upated!')
 
-        fig.set_figwidth(state.colwidth / fig.dpi)
         imgui_ds.imgui_fig.fig(figure=state.fig, title='')
 
         if imgui.is_mouse_clicked(imgui.MOUSE_BUTTON_LEFT):
