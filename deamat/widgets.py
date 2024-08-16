@@ -19,23 +19,12 @@ def im_plot_figure(state, figname, width=None, height=None, autosize=False):
     matplotlib.use(state.matplotlib_backend)
     if imgui.button('Plot ' + title):
         state.invalidate_figure(figname)
-    # imgui.same_line()
-    # if imgui.button('Open PyPlot'):
-    #     p = mp.Process(target=plot_fig, args=(figure,))
-    #     p.start()
-
+    if imgui.button('Open in pyplot'):
+        pass
     imgui.same_line()
     if imgui.button('Save figure'):
         fpath = pfd.save_file(title + '.png', state.figure_path).result()
         if len(fpath) > 0:
             state.figure_path = fpath
             figure.savefig(fpath)
-    # imgui.same_line()
-    # imgui.push_id(f'figh_{figname}')
-    # imgui.push_item_width(100)
-    # _, state.figures[figname]['height'] = imgui.input_int(
-    #     'Figure height, px',
-    #     state.figures[figname]['height']
-    # )
-    # imgui.pop_id()
     imgui_ds.imgui_fig.fig(figure=figure, title='')
