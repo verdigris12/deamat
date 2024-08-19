@@ -36,7 +36,14 @@ def im_plot_figure(state, figname, width=None, height=None, autosize=False):
         p = multiprocessing.Process(target=open_figure_in_pyplot, args=(pickled_figure,))
         p.start()
     imgui.same_line()
-    if imgui.button('Save figure'):
+    if imgui.button('Pickle'):
+        fpath = pfd.save_file(title + '.pkl', state.figure_path).result()
+        if len(fpath) > 0:
+            with open(fpath, 'wb') as f:
+                pickle.dump(figure, f)
+
+    imgui.same_line()
+    if imgui.button('Save image'):
         fpath = pfd.save_file(title + '.png', state.figure_path).result()
         if len(fpath) > 0:
             state.figure_path = fpath
