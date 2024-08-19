@@ -6,7 +6,7 @@ import matplotlib.pyplot as plt
 
 import imgui
 
-from . import guistate.GUIState as guistate
+from deamat.guistate import GUIState as guistate
 
 
 class State(GUIState):
