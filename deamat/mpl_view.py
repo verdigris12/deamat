@@ -3,6 +3,7 @@
 import pickle
 import imgui_datascience as imgui_ds
 import matplotlib.pyplot as plt
+from matplotlib import font_manager
 
 import imgui
 
@@ -128,7 +129,7 @@ class MPLView():
             suptitle_fontweight = font_weights[selected_fontweight]
             update_suptitle()
 
-        available_fonts = sorted(set([f.name for f in plt.font_manager.fontManager.ttflist]))
+        available_fonts = sorted(set([f.name for f in font_manager.fontManager.ttflist]))
         changed, selected_font = imgui.combo(
             "Font", available_fonts.index(suptitle_font), available_fonts
         )
@@ -192,6 +193,7 @@ class MPLView():
         imgui.text('Axes settings')
 
     def _rerender_figure(self, fig, width=None, height=None):
+        print('rendering!')
         dummy = plt.figure()
         new_manager = dummy.canvas.manager
         new_manager.canvas.figure = fig
