@@ -178,6 +178,14 @@ class MPLView():
     def _axes_settings_ui(self, ax):
         imgui.text('Axes settings')
 
+        changed, grid_major = imgui.checkbox("Show Major Grid", ax.xaxis._gridOnMajor)
+        if changed:
+            ax.grid(grid_major, which='major')
+
+        changed, grid_minor = imgui.checkbox("Show Minor Grid", ax.xaxis._gridOnMinor)
+        if changed:
+            ax.grid(grid_minor, which='minor')
+
     def _rerender_figure(self, fig, width=None, height=None):
         dummy = plt.figure()
         new_manager = dummy.canvas.manager
