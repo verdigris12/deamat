@@ -137,16 +137,20 @@ class MPLView():
             suptitle_fontweight = font_weights[selected_fontweight]
             update_suptitle()
 
-        changed, suptitle_va = imgui.input_text(
-            "Vertical Alignment", fig._suptitle.get_va() if fig._suptitle else "center", 256
+        vertical_alignments = ["center", "top", "bottom", "baseline"]
+        changed, selected_va = imgui.combo(
+            "Vertical Alignment", vertical_alignments.index(suptitle_va), vertical_alignments
         )
         if changed:
+            suptitle_va = vertical_alignments[selected_va]
             update_suptitle()
 
-        changed, suptitle_ha = imgui.input_text(
-            "Horizontal Alignment", fig._suptitle.get_ha() if fig._suptitle else "center", 256
+        horizontal_alignments = ["center", "left", "right"]
+        changed, selected_ha = imgui.combo(
+            "Horizontal Alignment", horizontal_alignments.index(suptitle_ha), horizontal_alignments
         )
         if changed:
+            suptitle_ha = horizontal_alignments[selected_ha]
             update_suptitle()
 
         changed, suptitle_x = imgui.input_float(
