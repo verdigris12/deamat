@@ -16,6 +16,7 @@ class MPLVState(GUIState):
         self.fig = fig
         self.fig_x = None
         self.fig_y = None
+        self.colwidth = None
 
     def load_figure(self, filename):
         with open(filename, 'rb') as file:
@@ -45,13 +46,16 @@ class MPLView():
         )
 
     def update_ui(self, state, gui, dt):
-        imgui.begin("Main Interface", True, imgui.WINDOW_NO_RESIZE)
         imgui.columns(2, "columns", True)
-        
+        fig = state.figures['Fig']['figure']
+
         # Left column for the figure
-        imgui.set_column_width(-1, imgui.get_window_width() - 200)
+        if not state.colwidth or state.colwidth != imgui.get_window_width() - 200:
+            imgui.set_column_width(-1, imgui.get_window_width() - 200)
+            state.colwidth = imgui.get_window_width() - 200
+
         imgui_ds.imgui_fig.fig(figure=state.fig, title='')
-        
+
         if imgui.is_mouse_clicked(imgui.MOUSE_BUTTON_LEFT):
             mouse_x, mouse_y = imgui.get_mouse_pos()
             ax = state.fig.gca()
@@ -59,14 +63,12 @@ class MPLView():
                 self.state.fig_x, self.state.fig_y = ax.transData.inverted().transform((mouse_x, mouse_y))
                 print(self.state.fig_x)
                 print(self.state.fig_y)
-        
+
         imgui.next_column()
-        
+
         # Right column for additional controls
         imgui.set_column_width(-1, 200)
         imgui.text("Right Column")
-        
-        imgui.end()
 
     def run(self):
         self.gui.run()
