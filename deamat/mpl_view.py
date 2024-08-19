@@ -48,6 +48,8 @@ class MPLView():
     def update_ui(self, state, gui, dt):
         imgui.columns(2, "columns", True)
         fig = state.figures['Fig']['figure']
+        state.colwidth = imgui.get_column_width()
+        fig.set_figwidth(state.colwidth / fig.dpi)
 
         # Left column for the figure
         if not state.colwidth or state.colwidth != imgui.get_window_width() - 200:
