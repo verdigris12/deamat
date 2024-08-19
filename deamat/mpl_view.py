@@ -78,14 +78,14 @@ class MPLView():
         if has_suptitle and fig._suptitle is None:
             fig.suptitle("")
 
-        suptitle_text = fig._suptitle.get_text() if fig._suptitle else ""
-        suptitle_fontsize = fig._suptitle.get_fontsize() if fig._suptitle else 12
-        suptitle_fontweight = fig._suptitle.get_fontweight() if fig._suptitle else "normal"
-        suptitle_font = fig._suptitle.get_fontname() if fig._suptitle else "DejaVu Sans"
-        suptitle_va = fig._suptitle.get_va() if fig._suptitle else "center"
-        suptitle_ha = fig._suptitle.get_ha() if fig._suptitle else "center"
-        suptitle_x = fig._suptitle.get_position()[0] if fig._suptitle else 0.5
-        suptitle_y = fig._suptitle.get_position()[1] if fig._suptitle else 0.98
+        suptitle_text = fig._suptitle.get_text()
+        suptitle_fontsize = fig._suptitle.get_fontsize()
+        suptitle_fontweight = fig._suptitle.get_fontweight()
+        suptitle_font = fig._suptitle.get_fontname()
+        suptitle_va = fig._suptitle.get_va()
+        suptitle_ha = fig._suptitle.get_ha()
+        suptitle_x = fig._suptitle.get_position()[0]
+        suptitle_y = fig._suptitle.get_position()[1]
 
         def update_suptitle():
             fig.suptitle(
@@ -106,14 +106,9 @@ class MPLView():
         if changed:
             update_suptitle()
 
-        def get_font_weights(font_name):
-            font_properties = font_manager.FontProperties(
-                fname=font_manager.findSystemFonts(fontpaths=None, fontext='ttf')[0]
-            )
-            print(font_properties)
-            return font_properties.get_weight_dict().keys()
-
+        # available_fonts = sorted(set([f.name for f in font_manager.FontManager.ttflist]))
         available_fonts = sorted(set([f.name for f in font_manager.fontManager.ttflist]))
+        # print(font_manager.fontManager.ttflist)
         changed, selected_font = imgui.combo(
             "Font", available_fonts.index(suptitle_font), available_fonts
         )
@@ -122,20 +117,15 @@ class MPLView():
             suptitle_fontweight = "normal"  # Reset font weight to default
             update_suptitle()
 
-        font_weights = list(get_font_weights(suptitle_font))
-        changed, selected_fontweight = imgui.combo(
+        font_weights = ['ultralight', 'light', 'normal', 'regular', 'book', 'medium',
+                        'roman', 'semibold', 'demibold', 'demi', 'bold', 'heavy',
+                        'extra bold', 'black'
+                        ]
+        changed, suptitle_fontweight = imgui.combo(
             "Font Weight", font_weights.index(suptitle_fontweight), font_weights
         )
         if changed:
-            suptitle_fontweight = font_weights[selected_fontweight]
-            update_suptitle()
-
-        available_fonts = sorted(set([f.name for f in font_manager.fontManager.ttflist]))
-        changed, selected_font = imgui.combo(
-            "Font", available_fonts.index(suptitle_font), available_fonts
-        )
-        if changed:
-            suptitle_font = available_fonts[selected_font]
+            suptitle_fontweight = font_weights[suptitle_fontweight]
             update_suptitle()
 
         vertical_alignments = ["center", "top", "bottom", "baseline"]
@@ -194,7 +184,6 @@ class MPLView():
         imgui.text('Axes settings')
 
     def _rerender_figure(self, fig, width=None, height=None):
-        print('rendering!')
         dummy = plt.figure()
         new_manager = dummy.canvas.manager
         new_manager.canvas.figure = fig
@@ -204,6 +193,7 @@ class MPLView():
         if height is not None:
             fig.set_figheight(height / fig.dpi)
         # This clears rendered figure cache and forces rerendering
+        self.state.invalidate_all_figures()
         imgui_ds.imgui_fig._fig_to_image.statics.fig_cache.clear()
 
     def update_ui(self, state, gui, dt):
