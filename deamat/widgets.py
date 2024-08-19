@@ -17,7 +17,7 @@ def open_figure_in_pyplot(pickled_figure):
     fig.set_canvas(new_manager.canvas)
     print(fig)
     fig.show()
-    plt.show()
+    plt.pause(0.1)
 
 
 def open_figure_in_bokeh(pickled_figure):
