@@ -168,7 +168,6 @@ class MPLView():
         if imgui.button("Apply Changes"):
             self._rerender_figure(fig)
 
-
     def _axes_settings_ui(self, ax):
         imgui.text('Axes settings')
 
