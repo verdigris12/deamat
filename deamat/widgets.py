@@ -12,6 +12,7 @@ def open_figure_in_pyplot(pickled_figure):
     plt.figure(fig.number)
     plt.show()
 
+
 def im_plot_figure(state, figname, width=None, height=None, autosize=False):
     fig_obj = state.figures[figname]
     figure = fig_obj['figure']
