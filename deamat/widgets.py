@@ -23,7 +23,8 @@ def open_figure_in_plotly(pickled_figure):
 
     fig = pickle.loads(pickled_figure)
     plotly_fig = tls.mpl_to_plotly(fig)
-    plotly_fig.update_layout(bargap=0.2)  # Set a valid value for bargap
+    if 'bargap' in plotly_fig['layout']:
+        plotly_fig['layout']['bargap'] = max(0, min(1, plotly_fig['layout']['bargap']))
     pio.show(plotly_fig)
 
 
