@@ -51,6 +51,8 @@ class MPLView():
             ax = state.fig.gca()
             if ax.bbox.contains(mouse_x, mouse_y):
                 self.state.fig_x, self.state.fig_y = ax.transData.inverted().transform((mouse_x, mouse_y))
+                print(self.state.fig_x)
+                print(self.state.fig_y)
 
     def run(self):
         self.gui.run()
