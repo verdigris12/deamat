@@ -16,7 +16,8 @@ class MPLVState(GUIState):
         self.fig = fig
         self.fig_x = None
         self.fig_y = None
-        self.colwidth = None
+        self.fig_colwidth = None
+        self.sidebar_width = 200
 
     def load_figure(self, filename):
         with open(filename, 'rb') as file:
@@ -40,38 +41,66 @@ class MPLView():
         self.gui.state.add_figure(
             'Fig',
             lambda state: self.state.fig,
-            height=200,
+            height=300,
             width=500,
             title='Figure 1'
         )
 
-    def update_ui(self, state, gui, dt):
-        imgui.columns(2, "columns", True)
-        fig = state.figures['Fig']['figure']
-
-        # Left column for the figure
-        imgui.set_column_width(-1, imgui.get_window_width() - 200)
-        if state.colwidth != imgui.get_column_width():
-            state.colwidth = imgui.get_column_width()
-            print(state.colwidth)
-            fig.set_figwidth(state.colwidth / fig.dpi)
-            state.invalidate_all_figures()
-
+    def _figure_view_ui(self, state, fig):
         imgui_ds.imgui_fig.fig(figure=state.fig, title='')
 
         if imgui.is_mouse_clicked(imgui.MOUSE_BUTTON_LEFT):
             mouse_x, mouse_y = imgui.get_mouse_pos()
             ax = state.fig.gca()
             if ax.bbox.contains(mouse_x, mouse_y):
-                self.state.fig_x, self.state.fig_y = ax.transData.inverted().transform((mouse_x, mouse_y))
-                print(self.state.fig_x)
-                print(self.state.fig_y)
+                self.state.fig_x, self.state.fig_y = ax.transData.inverted().transform(
+                    (mouse_x, mouse_y)
+                )
+
+    def _sidebar_ui(self, state):
+        fig = state.fig
+        with imgui.begin_tab_bar("CfgTabs"):
+            with imgui.begin_tab_item("Figure") as tab:
+                if tab.selected:
+                    self._figure_settings_ui(fig)
+            for ax_n, ax in enumerate(fig.axes):
+                with imgui.begin_tab_item(f'Axes {ax_n}') as tab:
+                    if tab.selected:
+                        self._axes_settings_ui(ax)
+
+    def _figure_settings_ui(self, fig):
+        imgui.text('Figure settings')
+
+    def _axes_settings_ui(self, ax):
+        imgui.text('Axes settings')
+
+    def _rerender_figure(self, fig, width=None, height=None):
+        dummy = plt.figure()
+        new_manager = dummy.canvas.manager
+        new_manager.canvas.figure = fig
+        fig.set_canvas(new_manager.canvas)
+        if width is not None:
+            fig.set_figwidth(width / fig.dpi)
+        if height is not None:
+            fig.set_figheight(height / fig.dpi)
+        # This clears rendered figure cache and forces rerendering
+        imgui_ds.imgui_fig._fig_to_image.statics.fig_cache.clear()
+
+    def update_ui(self, state, gui, dt):
+        imgui.columns(2, "columns", True)
+        fig = state.figures['Fig']['figure']
+
+        # Left column for the figure
+        # imgui.set_column_width(-1, imgui.get_window_width() - state.sidebar_width)
+        if state.fig_colwidth != imgui.get_column_width():
+            state.fig_colwidth = imgui.get_column_width()
+            self._rerender_figure(fig, width=state.fig_colwidth)
+
+        self._figure_view_ui(state, fig)
 
         imgui.next_column()
 
-        # Right column for additional controls
-        imgui.set_column_width(-1, 200)
-        imgui.text("Right Column")
+        self._sidebar_ui(state)
 
     def run(self):
         self.gui.run()
