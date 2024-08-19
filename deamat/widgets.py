@@ -10,8 +10,8 @@ import matplotlib.pyplot as plt
 def open_figure_in_pyplot(pickled_figure):
     matplotlib.use('TkAgg')
     fig = pickle.loads(pickled_figure)
-    fig.canvas.draw()
     plt.figure(fig.number)
+    fig.canvas.draw()
     plt.draw()
     plt.show()
 
@@ -29,8 +29,9 @@ def im_plot_figure(state, figname, width=None, height=None, autosize=False):
         if height:
             fig_obj['height'] = height
     matplotlib.use(state.matplotlib_backend)
-    if imgui.button('Plot ' + title):
+    if imgui.button('Redraw ' + title):
         state.invalidate_figure(figname)
+    imgui.same_line()
     if imgui.button('Open in pyplot'):
         pickled_figure = pickle.dumps(figure)
         p = multiprocessing.Process(target=open_figure_in_pyplot, args=(pickled_figure,))
