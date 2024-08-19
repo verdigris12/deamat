@@ -5,7 +5,6 @@ from imgui_bundle import portable_file_dialogs as pfd
 import pickle
 import multiprocessing
 import matplotlib.pyplot as plt
-import plotly.tools as tls
 
 
 def open_figure_in_pyplot(pickled_figure):
@@ -19,9 +18,8 @@ def open_figure_in_pyplot(pickled_figure):
 
 
 def open_figure_in_plotly(pickled_figure):
-    import plotly.graph_objects as go
     import plotly.io as pio
-    import numpy as np
+    import plotly.tools as tls
 
     fig = pickle.loads(pickled_figure)
     plotly_fig = tls.mpl_to_plotly(fig)
