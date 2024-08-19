@@ -83,7 +83,23 @@ class MPLView():
         if changed:
             fig.set_dpi(fig_dpi)
 
-        if imgui.button("Apply Changes"):
+        changed, bg_color = imgui.color_edit3("Background Color", *fig.get_facecolor()[:3])
+        if changed:
+            fig.patch.set_facecolor(bg_color)
+
+        layout_engines = ["tight_layout", "constrained_layout", "none"]
+        current_layout = 0 if fig.get_tight_layout() else 1 if fig.get_constrained_layout() else 2
+        changed, current_layout = imgui.radio_button("Layout Engine", current_layout, layout_engines)
+        if changed:
+            if current_layout == 0:
+                fig.set_tight_layout(True)
+                fig.set_constrained_layout(False)
+            elif current_layout == 1:
+                fig.set_tight_layout(False)
+                fig.set_constrained_layout(True)
+            else:
+                fig.set_tight_layout(False)
+                fig.set_constrained_layout(False)
             self._rerender_figure(fig)
 
     def _axes_settings_ui(self, ax):
