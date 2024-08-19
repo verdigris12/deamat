@@ -45,11 +45,12 @@ class MPLView():
         )
 
     def update_ui(self, state, gui, dt):
-        clicked, _ = imgui_ds.imgui_fig.fig(figure=state.fig, title='')
-        if clicked:
+        imgui_ds.imgui_fig.fig(figure=state.fig, title='')
+        if imgui.is_mouse_clicked(imgui.MOUSE_BUTTON_LEFT):
             mouse_x, mouse_y = imgui.get_mouse_pos()
             ax = state.fig.gca()
-            self.state.fig_x, self.state.fig_y = ax.transData.inverted().transform((mouse_x, mouse_y))
+            if ax.bbox.contains(mouse_x, mouse_y):
+                self.state.fig_x, self.state.fig_y = ax.transData.inverted().transform((mouse_x, mouse_y))
 
     def run(self):
         self.gui.run()
