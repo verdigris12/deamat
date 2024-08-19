@@ -4,43 +4,14 @@ import imgui
 import imgui_datascience as imgui_ds
 from imgui_bundle import portable_file_dialogs as pfd
 import pickle
-import matplotlib.pyplot as plt
-import tempfile
-import os
+
+from .mpl_view import MPLView
 
 
 def open_figure_in_pyplot(pickled_figure):
-    matplotlib.use('TkAgg', force=True)
-    with tempfile.NamedTemporaryFile(delete=False, suffix='.pkl') as tmpfile:
-        tmpfile.write(pickled_figure)
-        tmpfile_path = tmpfile.name
-
-    try:
-        fig = pickle.loads(pickled_figure)
-        dummy = plt.figure()
-        new_manager = dummy.canvas.manager
-        new_manager.canvas.figure = fig
-        fig.set_canvas(new_manager.canvas)
-        print(matplotlib.get_backend())
-        plt.show()
-    finally:
-        os.remove(tmpfile_path)
-
-
-def open_figure_in_bokeh(pickled_figure):
-    from bokeh.plotting import show
-    from bokeh import mpl
-
-    with tempfile.NamedTemporaryFile(delete=False, suffix='.pkl') as tmpfile:
-        tmpfile.write(pickled_figure)
-        tmpfile_path = tmpfile.name
-
-    try:
-        fig = pickle.loads(pickled_figure)
-        bokeh_fig = mpl.to_bokeh(fig)
-        show(bokeh_fig)
-    finally:
-        os.remove(tmpfile_path)
+    fig = pickle.loads(pickled_figure)
+    view = MPLView(fig)
+    view.run()
 
 
 def im_plot_figure(state, figname, width=None, height=None, autosize=False):
@@ -59,14 +30,10 @@ def im_plot_figure(state, figname, width=None, height=None, autosize=False):
     if imgui.button('Redraw ' + title):
         state.invalidate_figure(figname)
     imgui.same_line()
-    if imgui.button('Open in pyplot'):
+    if imgui.button('Open in viewer'):
         pickled_figure = pickle.dumps(figure)
+        multiprocessing.set_start_method(method='spawn', force=True)
         p = multiprocessing.Process(target=open_figure_in_pyplot, args=(pickled_figure,))
-        p.start()
-    imgui.same_line()
-    if imgui.button('Open in bokeh'):
-        pickled_figure = pickle.dumps(figure)
-        p = multiprocessing.Process(target=open_figure_in_bokeh, args=(pickled_figure,))
         p.start()
     imgui.same_line()
     if imgui.button('Save figure'):
