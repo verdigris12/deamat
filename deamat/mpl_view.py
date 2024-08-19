@@ -69,6 +69,77 @@ class MPLView():
                     if tab.selected:
                         self._axes_settings_ui(ax)
 
+    def _text_ui(self, mpl_text, update_callback):
+        mpltext_text = mpl_text.get_text()
+        mpltext_fontsize = mpl_text.get_fontsize()
+        mpltext_fontweight = mpl_text.get_fontweight()
+        mpltext_font = mpl_text.get_fontname()
+        mpltext_va = mpl_text.get_va()
+        mpltext_ha = mpl_text.get_ha()
+        mpltext_x = mpl_text.get_position()[0]
+        mpltext_y = mpl_text.get_position()[1]
+
+        def update_mpltext():
+            update_callback(
+                mpltext_text, fontsize=mpltext_fontsize, fontweight=mpltext_fontweight,
+                fontname=mpltext_font, verticalalignment=mpltext_va, horizontalalignment=mpltext_ha,
+                x=mpltext_x, y=mpltext_y
+            )
+
+        changed, mpltext_text = imgui.input_text(
+            "Text", mpl_text.get_text(), 256
+        )
+        if changed:
+            update_mpltext()
+
+        changed, mpltext_fontsize = imgui.input_int(
+            "Font Size", mpl_text.get_fontsize()
+        )
+        if changed:
+            update_mpltext()
+
+        available_fonts = sorted(set([f.name for f in font_manager.fontManager.ttflist]))
+        changed, selected_font = imgui.combo(
+            "Font", available_fonts.index(mpltext_font), available_fonts
+        )
+        if changed:
+            mpltext_font = available_fonts[selected_font]
+            mpltext_fontweight = "normal"  # Reset font weight to default
+            update_mpltext()
+
+        font_weights = ['ultralight', 'light', 'normal', 'regular', 'book', 'medium',
+                        'roman', 'semibold', 'demibold', 'demi', 'bold', 'heavy',
+                        'extra bold', 'black'
+                        ]
+        changed, fw_selection = imgui.combo(
+            "Font Weight", font_weights.index(mpltext_fontweight), font_weights
+        )
+        if changed:
+            mpltext_fontweight = font_weights[fw_selection]
+            update_mpltext()
+
+        vertical_alignments = ["center", "top", "bottom", "baseline"]
+        changed, selected_va = imgui.combo(
+            "Vertical Alignment", vertical_alignments.index(mpltext_va), vertical_alignments
+        )
+        if changed:
+            mpltext_va = vertical_alignments[selected_va]
+            update_mpltext()
+
+        horizontal_alignments = ["center", "left", "right"]
+        changed, selected_ha = imgui.combo(
+            "Horizontal Alignment", horizontal_alignments.index(mpltext_ha), horizontal_alignments
+        )
+        if changed:
+            mpltext_ha = horizontal_alignments[selected_ha]
+            update_mpltext()
+
+        changed, (mpltext_x, mpltext_y) = imgui.input_float2(
+            "Position", mpltext_x, mpltext_y
+        )
+        if changed:
+            update_mpltext()
+
     def _figure_suptitile_ui(self, fig):
         _, has_suptitle = imgui.checkbox("Figure title", fig._suptitle is not None)
         if not has_suptitle:
@@ -78,83 +149,7 @@ class MPLView():
         if has_suptitle and fig._suptitle is None:
             fig.suptitle("")
 
-        suptitle_text = fig._suptitle.get_text()
-        suptitle_fontsize = fig._suptitle.get_fontsize()
-        suptitle_fontweight = fig._suptitle.get_fontweight()
-        suptitle_font = fig._suptitle.get_fontname()
-        suptitle_va = fig._suptitle.get_va()
-        suptitle_ha = fig._suptitle.get_ha()
-        suptitle_x = fig._suptitle.get_position()[0]
-        suptitle_y = fig._suptitle.get_position()[1]
-
-        def update_suptitle():
-            fig.suptitle(
-                suptitle_text, fontsize=suptitle_fontsize, fontweight=suptitle_fontweight,
-                fontname=suptitle_font, verticalalignment=suptitle_va, horizontalalignment=suptitle_ha,
-                x=suptitle_x, y=suptitle_y
-            )
-
-        changed, suptitle_text = imgui.input_text(
-            "Text", fig._suptitle.get_text() if fig._suptitle else "", 256
-        )
-        if changed:
-            update_suptitle()
-
-        changed, suptitle_fontsize = imgui.input_int(
-            "Font Size", fig._suptitle.get_fontsize() if fig._suptitle else 12
-        )
-        if changed:
-            update_suptitle()
-
-        # available_fonts = sorted(set([f.name for f in font_manager.FontManager.ttflist]))
-        available_fonts = sorted(set([f.name for f in font_manager.fontManager.ttflist]))
-        # print(font_manager.fontManager.ttflist)
-        changed, selected_font = imgui.combo(
-            "Font", available_fonts.index(suptitle_font), available_fonts
-        )
-        if changed:
-            suptitle_font = available_fonts[selected_font]
-            suptitle_fontweight = "normal"  # Reset font weight to default
-            update_suptitle()
-
-        font_weights = ['ultralight', 'light', 'normal', 'regular', 'book', 'medium',
-                        'roman', 'semibold', 'demibold', 'demi', 'bold', 'heavy',
-                        'extra bold', 'black'
-                        ]
-        changed, suptitle_fontweight = imgui.combo(
-            "Font Weight", font_weights.index(suptitle_fontweight), font_weights
-        )
-        if changed:
-            suptitle_fontweight = font_weights[suptitle_fontweight]
-            update_suptitle()
-
-        vertical_alignments = ["center", "top", "bottom", "baseline"]
-        changed, selected_va = imgui.combo(
-            "Vertical Alignment", vertical_alignments.index(suptitle_va), vertical_alignments
-        )
-        if changed:
-            suptitle_va = vertical_alignments[selected_va]
-            update_suptitle()
-
-        horizontal_alignments = ["center", "left", "right"]
-        changed, selected_ha = imgui.combo(
-            "Horizontal Alignment", horizontal_alignments.index(suptitle_ha), horizontal_alignments
-        )
-        if changed:
-            suptitle_ha = horizontal_alignments[selected_ha]
-            update_suptitle()
-
-        changed, suptitle_x = imgui.input_float(
-            "X", fig._suptitle.get_position()[0] if fig._suptitle else 0.5
-        )
-        if changed:
-            update_suptitle()
-
-        changed, suptitle_y = imgui.input_float(
-            "Y", fig._suptitle.get_position()[1] if fig._suptitle else 0.98
-        )
-        if changed:
-            update_suptitle()
+        self._text_ui(fig._suptitle, fig.suptitle)
 
     def _figure_settings_ui(self, fig):
         imgui.text('Figure settings')
