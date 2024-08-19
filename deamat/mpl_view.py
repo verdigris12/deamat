@@ -80,6 +80,7 @@ class MPLView():
         suptitle_text = fig._suptitle.get_text() if fig._suptitle else ""
         suptitle_fontsize = fig._suptitle.get_fontsize() if fig._suptitle else 12
         suptitle_fontweight = fig._suptitle.get_fontweight() if fig._suptitle else "normal"
+        suptitle_font = fig._suptitle.get_fontname() if fig._suptitle else "DejaVu Sans"
         suptitle_va = fig._suptitle.get_va() if fig._suptitle else "center"
         suptitle_ha = fig._suptitle.get_ha() if fig._suptitle else "center"
         suptitle_x = fig._suptitle.get_position()[0] if fig._suptitle else 0.5
@@ -88,7 +89,7 @@ class MPLView():
         def update_suptitle():
             fig.suptitle(
                 suptitle_text, fontsize=suptitle_fontsize, fontweight=suptitle_fontweight,
-                verticalalignment=suptitle_va, horizontalalignment=suptitle_ha,
+                fontname=suptitle_font, verticalalignment=suptitle_va, horizontalalignment=suptitle_ha,
                 x=suptitle_x, y=suptitle_y
             )
 
@@ -125,6 +126,14 @@ class MPLView():
         )
         if changed:
             suptitle_fontweight = font_weights[selected_fontweight]
+            update_suptitle()
+
+        available_fonts = sorted(set([f.name for f in plt.font_manager.fontManager.ttflist]))
+        changed, selected_font = imgui.combo(
+            "Font", available_fonts.index(suptitle_font), available_fonts
+        )
+        if changed:
+            suptitle_font = available_fonts[selected_font]
             update_suptitle()
 
         vertical_alignments = ["center", "top", "bottom", "baseline"]
