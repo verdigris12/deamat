@@ -10,7 +10,9 @@ import matplotlib.pyplot as plt
 def open_figure_in_pyplot(pickled_figure):
     matplotlib.use('TkAgg')
     fig = pickle.loads(pickled_figure)
+    fig.canvas.draw()
     plt.figure(fig.number)
+    plt.draw()
     plt.show()
 
 
