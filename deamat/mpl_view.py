@@ -71,6 +71,21 @@ class MPLView():
     def _figure_settings_ui(self, fig):
         imgui.text('Figure settings')
 
+        changed, fig_width = imgui.input_float("Width", fig.get_figwidth(), 0.1, 1.0)
+        if changed:
+            fig.set_figwidth(fig_width)
+
+        changed, fig_height = imgui.input_float("Height", fig.get_figheight(), 0.1, 1.0)
+        if changed:
+            fig.set_figheight(fig_height)
+
+        changed, fig_dpi = imgui.input_float("DPI", fig.get_dpi(), 1.0, 10.0)
+        if changed:
+            fig.set_dpi(fig_dpi)
+
+        if imgui.button("Apply Changes"):
+            self._rerender_figure(fig)
+
     def _axes_settings_ui(self, ax):
         imgui.text('Axes settings')
 
