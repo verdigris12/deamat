@@ -183,9 +183,21 @@ class MPLView():
         if changed:
             ax.grid(grid_major, which='major')
 
+        changed, major_alpha = imgui.slider_float("Major Grid Alpha", ax.xaxis._grid_kw.get('alpha', 1.0), 0.0, 1.0)
+        if changed:
+            for line in ax.get_xgridlines() + ax.get_ygridlines():
+                if line.get_linestyle() == '-':
+                    line.set_alpha(major_alpha)
+
         changed, grid_minor = imgui.checkbox("Show Minor Grid", ax.xaxis._minor_tick_kw.get('gridOn', False))
         if changed:
             ax.grid(grid_minor, which='minor')
+
+        changed, minor_alpha = imgui.slider_float("Minor Grid Alpha", ax.xaxis._grid_kw.get('alpha', 1.0), 0.0, 1.0)
+        if changed:
+            for line in ax.get_xgridlines() + ax.get_ygridlines():
+                if line.get_linestyle() == '--':
+                    line.set_alpha(minor_alpha)
 
     def _rerender_figure(self, fig, width=None, height=None):
         dummy = plt.figure()
