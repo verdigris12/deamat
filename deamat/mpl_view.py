@@ -107,7 +107,10 @@ class MPLView():
             update_suptitle()
 
         def get_font_weights(font_name):
-            font_properties = font_manager.FontProperties(fname=font_manager.findSystemFonts(fontpaths=None, fontext='ttf')[0])
+            font_properties = font_manager.FontProperties(
+                fname=font_manager.findSystemFonts(fontpaths=None, fontext='ttf')[0]
+            )
+            print(font_properties)
             return font_properties.get_weight_dict().keys()
 
         available_fonts = sorted(set([f.name for f in font_manager.fontManager.ttflist]))
