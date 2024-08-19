@@ -9,6 +9,9 @@ description = "A Python GUI boilerplate"
 authors = [
     { name = "verdigris", email = "verdigris1903@proton.me" }
 ]
+
+[project.scripts]
+mpl-view = "x.mpl_view:main"
 dependencies = [
     "annotated-types==0.7.0",
     "cocos2d==0.6.10",
