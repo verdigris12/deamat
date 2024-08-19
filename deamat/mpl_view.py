@@ -54,6 +54,7 @@ class MPLView():
             imgui.set_column_width(-1, imgui.get_window_width() - 200)
             state.colwidth = imgui.get_window_width() - 200
 
+        fig.set_figwidth(state.colwidth / fig.dpi)
         imgui_ds.imgui_fig.fig(figure=state.fig, title='')
 
         if imgui.is_mouse_clicked(imgui.MOUSE_BUTTON_LEFT):
