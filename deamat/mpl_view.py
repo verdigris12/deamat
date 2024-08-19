@@ -60,6 +60,10 @@ class MPLView():
 
     def _sidebar_ui(self, state):
         fig = state.fig
+
+        if imgui.button("Apply Changes"):
+            self._rerender_figure(fig)
+
         with imgui.begin_tab_bar("CfgTabs"):
             with imgui.begin_tab_item("Figure") as tab:
                 if tab.selected:
@@ -171,9 +175,6 @@ class MPLView():
             fig.patch.set_facecolor(bg_color)
 
         self._figure_suptitile_ui(fig)
-
-        if imgui.button("Apply Changes"):
-            self._rerender_figure(fig)
 
     def _axes_settings_ui(self, ax):
         imgui.text('Axes settings')
