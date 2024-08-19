@@ -4,10 +4,9 @@ import sys
 import pickle
 import matplotlib.pyplot as plt
 
-from deamat.gui import GUI as dGUI
-from deamat.guistate import GUIState
-from deamat.widgets import im_plot_figure
 import imgui
+
+from . import guistate.GUIState as guistate
 
 
 class State(GUIState):
