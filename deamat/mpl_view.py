@@ -106,28 +106,9 @@ class MPLView():
         if changed:
             update_suptitle()
 
-        font_weights = [
-            "ultralight",
-            "light",
-            "normal",
-            "regular",
-            "book",
-            "medium",
-            "roman",
-            "semibold",
-            "demibold",
-            "demi",
-            "bold",
-            "heavy",
-            "extra bold",
-            "black"
-        ]
-        changed, selected_fontweight = imgui.combo(
-            "Font Weight", font_weights.index(suptitle_fontweight), font_weights
-        )
-        if changed:
-            suptitle_fontweight = font_weights[selected_fontweight]
-            update_suptitle()
+        def get_font_weights(font_name):
+            font_properties = font_manager.FontProperties(fname=font_manager.findSystemFonts(fontpaths=None, fontext='ttf')[0])
+            return font_properties.get_weight_dict().keys()
 
         available_fonts = sorted(set([f.name for f in font_manager.fontManager.ttflist]))
         changed, selected_font = imgui.combo(
@@ -135,6 +116,15 @@ class MPLView():
         )
         if changed:
             suptitle_font = available_fonts[selected_font]
+            suptitle_fontweight = "normal"  # Reset font weight to default
+            update_suptitle()
+
+        font_weights = list(get_font_weights(suptitle_font))
+        changed, selected_fontweight = imgui.combo(
+            "Font Weight", font_weights.index(suptitle_fontweight), font_weights
+        )
+        if changed:
+            suptitle_fontweight = font_weights[selected_fontweight]
             update_suptitle()
 
         available_fonts = sorted(set([f.name for f in font_manager.fontManager.ttflist]))
