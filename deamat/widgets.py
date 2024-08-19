@@ -10,8 +10,12 @@ import matplotlib.pyplot as plt
 def open_figure_in_pyplot(pickled_figure):
     matplotlib.use('TkAgg')
     fig = pickle.loads(pickled_figure)
-    plt.figure(fig.number)
-    fig.canvas.draw()
+    new_fig = plt.figure()
+    new_ax = new_fig.add_subplot(111)
+    for ax in fig.get_axes():
+        for line in ax.get_lines():
+            new_ax.plot(line.get_xdata(), line.get_ydata(), label=line.get_label())
+    new_ax.legend()
     plt.draw()
     plt.show()
 
