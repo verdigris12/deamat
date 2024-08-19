@@ -98,13 +98,21 @@ class MPLView():
             "Text", fig._suptitle.get_text() if fig._suptitle else "", 256
         )
         if changed:
-            fig.suptitle(suptitle_text)
+            fig.suptitle(
+                suptitle_text, fontsize=suptitle_fontsize, fontweight=suptitle_fontweight,
+                verticalalignment=suptitle_va, horizontalalignment=suptitle_ha,
+                x=suptitle_x, y=suptitle_y
+            )
 
         changed, suptitle_fontsize = imgui.input_int(
             "Font Size", fig._suptitle.get_fontsize() if fig._suptitle else 12
         )
         if changed:
-            fig.suptitle(suptitle_text, fontsize=suptitle_fontsize)
+            fig.suptitle(
+                suptitle_text, fontsize=suptitle_fontsize, fontweight=suptitle_fontweight,
+                verticalalignment=suptitle_va, horizontalalignment=suptitle_ha,
+                x=suptitle_x, y=suptitle_y
+            )
 
         font_weights = ["ultralight", "light", "normal", "regular", "book", "medium", "roman", "semibold", "demibold", "demi", "bold", "heavy", "extra bold", "black"]
         current_fontweight = fig._suptitle.get_fontweight() if fig._suptitle else "normal"
@@ -114,7 +122,9 @@ class MPLView():
         if changed:
             suptitle_fontweight = font_weights[selected_fontweight]
             fig.suptitle(
-                suptitle_text, fontsize=suptitle_fontsize, fontweight=suptitle_fontweight
+                suptitle_text, fontsize=suptitle_fontsize, fontweight=suptitle_fontweight,
+                verticalalignment=suptitle_va, horizontalalignment=suptitle_ha,
+                x=suptitle_x, y=suptitle_y
             )
 
         changed, suptitle_va = imgui.input_text(
@@ -122,7 +132,9 @@ class MPLView():
         )
         if changed:
             fig.suptitle(
-                suptitle_text, fontsize=suptitle_fontsize, fontweight=suptitle_fontweight, verticalalignment=suptitle_va
+                suptitle_text, fontsize=suptitle_fontsize, fontweight=suptitle_fontweight,
+                verticalalignment=suptitle_va, horizontalalignment=suptitle_ha,
+                x=suptitle_x, y=suptitle_y
             )
 
         changed, suptitle_ha = imgui.input_text(
@@ -130,7 +142,9 @@ class MPLView():
         )
         if changed:
             fig.suptitle(
-                suptitle_text, fontsize=suptitle_fontsize, fontweight=suptitle_fontweight, verticalalignment=suptitle_va, horizontalalignment=suptitle_ha
+                suptitle_text, fontsize=suptitle_fontsize, fontweight=suptitle_fontweight,
+                verticalalignment=suptitle_va, horizontalalignment=suptitle_ha,
+                x=suptitle_x, y=suptitle_y
             )
 
         changed, suptitle_x = imgui.input_float(
@@ -138,7 +152,9 @@ class MPLView():
         )
         if changed:
             fig.suptitle(
-                suptitle_text, fontsize=suptitle_fontsize, fontweight=suptitle_fontweight, verticalalignment=suptitle_va, horizontalalignment=suptitle_ha, x=suptitle_x
+                suptitle_text, fontsize=suptitle_fontsize, fontweight=suptitle_fontweight,
+                verticalalignment=suptitle_va, horizontalalignment=suptitle_ha,
+                x=suptitle_x, y=suptitle_y
             )
 
         changed, suptitle_y = imgui.input_float(
