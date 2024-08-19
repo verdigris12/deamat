@@ -197,6 +197,19 @@ class MPLView():
                 elif line.get_linestyle() == '--':
                     line.set_alpha(minor_alpha)
 
+        imgui.text('Axis Labels')
+        changed, xlabel = imgui.input_text("X Label", ax.get_xlabel(), 256)
+        if changed:
+            ax.set_xlabel(xlabel)
+
+        changed, ylabel = imgui.input_text("Y Label", ax.get_ylabel(), 256)
+        if changed:
+            ax.set_ylabel(ylabel)
+
+        changed, title = imgui.input_text("Title", ax.get_title(), 256)
+        if changed:
+            ax.set_title(title)
+
     def _rerender_figure(self, fig, width=None, height=None):
         dummy = plt.figure()
         new_manager = dummy.canvas.manager
