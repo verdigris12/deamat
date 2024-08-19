@@ -178,11 +178,11 @@ class MPLView():
     def _axes_settings_ui(self, ax):
         imgui.text('Axes settings')
 
-        changed, grid_major = imgui.checkbox("Show Major Grid", ax.xaxis._gridOnMajor)
+        changed, grid_major = imgui.checkbox("Show Major Grid", ax.xaxis._major_tick_kw.get('gridOn', False))
         if changed:
             ax.grid(grid_major, which='major')
 
-        changed, grid_minor = imgui.checkbox("Show Minor Grid", ax.xaxis._gridOnMinor)
+        changed, grid_minor = imgui.checkbox("Show Minor Grid", ax.xaxis._minor_tick_kw.get('gridOn', False))
         if changed:
             ax.grid(grid_minor, which='minor')
 
