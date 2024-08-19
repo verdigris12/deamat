@@ -5,26 +5,42 @@ import imgui_datascience as imgui_ds
 from imgui_bundle import portable_file_dialogs as pfd
 import pickle
 import matplotlib.pyplot as plt
+import tempfile
+import os
 
 
 def open_figure_in_pyplot(pickled_figure):
     matplotlib.use('TkAgg', force=True)
-    fig = pickle.loads(pickled_figure)
-    dummy = plt.figure()
-    new_manager = dummy.canvas.manager
-    new_manager.canvas.figure = fig
-    fig.set_canvas(new_manager.canvas)
-    print(matplotlib.get_backend())
-    plt.show()
+    with tempfile.NamedTemporaryFile(delete=False, suffix='.pkl') as tmpfile:
+        tmpfile.write(pickled_figure)
+        tmpfile_path = tmpfile.name
+
+    try:
+        fig = pickle.loads(pickled_figure)
+        dummy = plt.figure()
+        new_manager = dummy.canvas.manager
+        new_manager.canvas.figure = fig
+        fig.set_canvas(new_manager.canvas)
+        print(matplotlib.get_backend())
+        plt.show()
+    finally:
+        os.remove(tmpfile_path)
 
 
 def open_figure_in_bokeh(pickled_figure):
     from bokeh.plotting import show
     from bokeh import mpl
 
-    fig = pickle.loads(pickled_figure)
-    bokeh_fig = mpl.to_bokeh(fig)
-    show(bokeh_fig)
+    with tempfile.NamedTemporaryFile(delete=False, suffix='.pkl') as tmpfile:
+        tmpfile.write(pickled_figure)
+        tmpfile_path = tmpfile.name
+
+    try:
+        fig = pickle.loads(pickled_figure)
+        bokeh_fig = mpl.to_bokeh(fig)
+        show(bokeh_fig)
+    finally:
+        os.remove(tmpfile_path)
 
 
 def im_plot_figure(state, figname, width=None, height=None, autosize=False):
