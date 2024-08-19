@@ -1,4 +1,5 @@
 import matplotlib
+multiprocessing.set_start_method('spawn', force=True)
 import imgui
 import imgui_datascience as imgui_ds
 from imgui_bundle import portable_file_dialogs as pfd
