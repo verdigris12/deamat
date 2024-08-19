@@ -87,7 +87,12 @@ class MPLView():
         if changed:
             fig.patch.set_facecolor(bg_color)
 
+        changed, suptitle = imgui.input_text("Suptitle", fig._suptitle.get_text() if fig._suptitle else "", 256)
+        if changed:
+            fig.suptitle(suptitle)
+
         if imgui.button("Apply Changes"):
+            self._rerender_figure(fig)
             self._rerender_figure(fig)
 
     def _axes_settings_ui(self, ax):
