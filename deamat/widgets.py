@@ -16,7 +16,7 @@ def open_figure_in_pyplot(pickled_figure):
     fig.set_canvas(new_manager.canvas)
     print(fig)
     fig.show()
-    # plt.ion()
+    plt.ioff()
     plt.show()
 
 
