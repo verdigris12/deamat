@@ -192,6 +192,10 @@ class MPLView():
             for line in ax.get_xgridlines() + ax.get_ygridlines():
                 line.set_alpha(alpha)
 
+        changed, bg_color = imgui.color_edit3("Background Color", *ax.get_facecolor()[:3])
+        if changed:
+            ax.set_facecolor(bg_color)
+
         imgui.text('Axis Labels')
         changed, xlabel = imgui.input_text("X Label", ax.get_xlabel(), 256)
         if changed:
