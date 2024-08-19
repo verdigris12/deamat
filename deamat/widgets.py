@@ -17,12 +17,10 @@ def open_figure_in_pyplot(pickled_figure):
     fig.set_canvas(new_manager.canvas)
     plt.show()
 
+
 def open_figure_in_plotly(pickled_figure):
-    matplotlib.use('TkAgg')
-    fig = pickle.loads(pickled_figure)
-    plotly_fig = tls.mpl_to_plotly(fig)
-    plotly_fig.update_layout(bargap=0.2)  # Set a valid value for bargap
-    plotly_fig.show()
+    pass
+
 
 def im_plot_figure(state, figname, width=None, height=None, autosize=False):
     fig_obj = state.figures[figname]
