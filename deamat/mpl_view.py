@@ -14,6 +14,8 @@ class MPLVState(GUIState):
     def __init__(self, fig):
         GUIState.__init__(self)
         self.fig = fig
+        self.fig_x = None
+        self.fig_y = None
 
     def load_figure(self, filename):
         with open(filename, 'rb') as file:
