@@ -1,6 +1,6 @@
 import unittest
-from deamat.gui import GUI
-from deamat.guistate import GUIState
+from ..deamat.gui import GUI
+from ..deamat.guistate import GUIState
 
 
 class TestGUI(unittest.TestCase):
