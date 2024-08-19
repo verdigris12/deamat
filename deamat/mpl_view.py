@@ -87,7 +87,13 @@ class MPLView():
         if changed:
             fig.patch.set_facecolor(bg_color)
 
-        imgui.text('Suptitle')
+        suptitle_text = fig._suptitle.get_text() if fig._suptitle else ""
+        suptitle_fontsize = fig._suptitle.get_fontsize() if fig._suptitle else 12
+        suptitle_fontweight = fig._suptitle.get_fontweight() if fig._suptitle else "normal"
+        suptitle_va = fig._suptitle.get_va() if fig._suptitle else "center"
+        suptitle_ha = fig._suptitle.get_ha() if fig._suptitle else "center"
+        suptitle_x = fig._suptitle.get_position()[0] if fig._suptitle else 0.5
+        suptitle_y = fig._suptitle.get_position()[1] if fig._suptitle else 0.98
         changed, suptitle_text = imgui.input_text(
             "Text", fig._suptitle.get_text() if fig._suptitle else "", 256
         )
