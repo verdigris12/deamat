@@ -25,7 +25,7 @@ def open_figure_in_plotly(pickled_figure):
     plotly_fig = tls.mpl_to_plotly(fig)
     if 'bargap' in plotly_fig['layout']:
         plotly_fig['layout']['bargap'] = max(0, min(1, plotly_fig['layout']['bargap']))
-    pio.show(plotly_fig)
+    pio.show(plotly_fig, renderer='browser')
 
 
 def im_plot_figure(state, figname, width=None, height=None, autosize=False):
