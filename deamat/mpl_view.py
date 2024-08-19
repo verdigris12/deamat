@@ -100,10 +100,13 @@ class MPLView():
         if changed:
             fig.suptitle(suptitle_text, fontsize=suptitle_fontsize)
 
-        changed, suptitle_fontweight = imgui.input_text(
-            "Font Weight", fig._suptitle.get_fontweight() if fig._suptitle else "normal", 256
+        font_weights = ["ultralight", "light", "normal", "regular", "book", "medium", "roman", "semibold", "demibold", "demi", "bold", "heavy", "extra bold", "black"]
+        current_fontweight = fig._suptitle.get_fontweight() if fig._suptitle else "normal"
+        changed, selected_fontweight = imgui.combo(
+            "Font Weight", font_weights.index(current_fontweight), font_weights
         )
         if changed:
+            suptitle_fontweight = font_weights[selected_fontweight]
             fig.suptitle(
                 suptitle_text, fontsize=suptitle_fontsize, fontweight=suptitle_fontweight
             )
