@@ -183,7 +183,8 @@ class MPLView():
         if changed:
             ax.grid(grid_major, which='major')
 
-        changed, major_alpha = imgui.slider_float("Major Grid Alpha", ax.xaxis._grid_kw.get('alpha', 1.0), 0.0, 1.0)
+        major_alpha = next((line.get_alpha() for line in ax.get_xgridlines() if line.get_linestyle() == '-'), 1.0)
+        changed, major_alpha = imgui.slider_float("Major Grid Alpha", major_alpha, 0.0, 1.0)
         if changed:
             for line in ax.get_xgridlines() + ax.get_ygridlines():
                 if line.get_linestyle() == '-':
@@ -193,7 +194,8 @@ class MPLView():
         if changed:
             ax.grid(grid_minor, which='minor')
 
-        changed, minor_alpha = imgui.slider_float("Minor Grid Alpha", ax.xaxis._grid_kw.get('alpha', 1.0), 0.0, 1.0)
+        minor_alpha = next((line.get_alpha() for line in ax.get_xgridlines() if line.get_linestyle() == '--'), 1.0)
+        changed, minor_alpha = imgui.slider_float("Minor Grid Alpha", minor_alpha, 0.0, 1.0)
         if changed:
             for line in ax.get_xgridlines() + ax.get_ygridlines():
                 if line.get_linestyle() == '--':
