@@ -4,9 +4,9 @@ import sys
 import pickle
 import matplotlib.pyplot as plt
 
-from .gui import GUI as dGUI
-from .guistate import GUIState
-from .widgets import im_plot_figure
+from deamat.gui import GUI as dGUI
+from deamat.guistate import GUIState
+from deamat.widgets import im_plot_figure
 import imgui
 
 
