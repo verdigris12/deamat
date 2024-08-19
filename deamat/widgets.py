@@ -17,17 +17,6 @@ def open_figure_in_pyplot(pickled_figure):
     plt.show()
 
 
-def open_figure_in_plotly(pickled_figure):
-    import plotly.io as pio
-    import plotly.tools as tls
-
-    fig = pickle.loads(pickled_figure)
-    plotly_fig = tls.mpl_to_plotly(fig)
-    if 'bargap' in plotly_fig['layout']:
-        plotly_fig['layout']['bargap'] = max(0, min(1, plotly_fig['layout']['bargap']))
-    pio.show(plotly_fig, renderer='browser')
-
-
 def im_plot_figure(state, figname, width=None, height=None, autosize=False):
     fig_obj = state.figures[figname]
     figure = fig_obj['figure']
@@ -47,11 +36,6 @@ def im_plot_figure(state, figname, width=None, height=None, autosize=False):
     if imgui.button('Open in pyplot'):
         pickled_figure = pickle.dumps(figure)
         p = multiprocessing.Process(target=open_figure_in_pyplot, args=(pickled_figure,))
-        p.start()
-    imgui.same_line()
-    if imgui.button('Open in plotly'):
-        pickled_figure = pickle.dumps(figure)
-        p = multiprocessing.Process(target=open_figure_in_plotly, args=(pickled_figure,))
         p.start()
     imgui.same_line()
     if imgui.button('Save figure'):
