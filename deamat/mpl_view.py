@@ -196,6 +196,35 @@ class MPLView():
         if changed:
             ax.set_facecolor(bg_color)
 
+        changed, grid_major = imgui.checkbox("Show Major Grid", ax.xaxis._major_tick_kw.get('gridOn', False))
+        if changed:
+            ax.grid(grid_major)
+
+        major_gridlines_x = ax.get_xgridlines()
+        alpha = major_gridlines_x[0].get_alpha()
+        changed, alpha = imgui.slider_float(
+            "Grid Alpha (Major, Minor)", alpha, 0.0, 1.0
+        )
+        if changed:
+            for line in ax.get_xgridlines() + ax.get_ygridlines():
+                line.set_alpha(alpha)
+
+        changed, bg_color = imgui.color_edit3("Background Color", *ax.get_facecolor()[:3])
+        if changed:
+            ax.set_facecolor(bg_color)
+
+        grid_color = major_gridlines_x[0].get_color()
+        changed, grid_color = imgui.color_edit3("Grid Color", *grid_color[:3])
+        if changed:
+            for line in ax.get_xgridlines() + ax.get_ygridlines():
+                line.set_color(grid_color)
+
+        axis_color = ax.spines['bottom'].get_edgecolor()
+        changed, axis_color = imgui.color_edit3("Axis Color", *axis_color[:3])
+        if changed:
+            for spine in ax.spines.values():
+                spine.set_edgecolor(axis_color)
+
         imgui.text('Axis Labels')
         changed, xlabel = imgui.input_text("X Label", ax.get_xlabel(), 256)
         if changed:
