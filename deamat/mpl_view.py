@@ -7,6 +7,7 @@ from matplotlib import font_manager
 import matplotlib.colors as mcolors
 
 import imgui
+import imgui_bundle.pfd as pfd
 
 from .guistate import GUIState
 from .gui import GUI
@@ -341,10 +342,16 @@ class MPLView():
     def update_ui(self, state, gui, dt):
         if imgui.begin_main_menu_bar():
             if imgui.begin_menu("File", True):
-                clicked_save, _ = imgui.menu_item("Save as pickle", "Ctrl+S", False, True)
+                clicked_save_pickle, _ = imgui.menu_item("Save as pickle", "Ctrl+S", False, True)
                 clicked_save, _ = imgui.menu_item("Export as PNG", "Ctrl+S", False, True)
                 clicked_exit, _ = imgui.menu_item("Exit", "Ctrl+Q", False, True)
-                if clicked_exit:
+                if clicked_save_pickle:
+                    file_dialog = pfd.SaveDialog("Save Figure as Pickle", "Pickle files (*.pkl)\0*.pkl\0All files (*.*)\0*.*\0")
+                    file_path = file_dialog.result()
+                    if file_path:
+                        with open(file_path, 'wb') as file:
+                            pickle.dump(self.state.fig, file)
+                elif clicked_exit:
                     exit(0)
                 imgui.end_menu()
             imgui.end_main_menu_bar()
