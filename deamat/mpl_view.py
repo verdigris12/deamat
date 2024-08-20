@@ -266,15 +266,6 @@ class MPLView():
             ax.spines['left'].set_linewidth(linewidth_y)
             ax.spines['right'].set_linewidth(linewidth_y)
 
-        changed, tick_label_fontsize = imgui.input_float(
-            "Tick Label Font Size", ax.xaxis.get_ticklabels()[0].get_fontsize()
-        )
-        if changed:
-            for label in ax.xaxis.get_ticklabels():
-                label.set_fontsize(tick_label_fontsize)
-            for label in ax.yaxis.get_ticklabels():
-                label.set_fontsize(tick_label_fontsize)
-
         changed, axis_color_x = imgui.color_edit3("X Axis Color", *axis_color_x[:3])
         if changed:
             ax.spines['bottom'].set_edgecolor(axis_color_x)
