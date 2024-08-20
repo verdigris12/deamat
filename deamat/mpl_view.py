@@ -178,9 +178,13 @@ class MPLView():
         self._figure_suptitile_ui(fig)
 
     def _axis_grid_settings(self, ax):
-        changed, grid_major = imgui.checkbox("Show Grid", ax.xaxis._major_tick_kw.get('gridOn', False))
+        changed, grid_major_x = imgui.checkbox("Show X Grid", ax.xaxis._major_tick_kw.get('gridOn', False))
         if changed:
-            ax.grid(grid_major)
+            ax.xaxis.grid(grid_major_x)
+        
+        changed, grid_major_y = imgui.checkbox("Show Y Grid", ax.yaxis._major_tick_kw.get('gridOn', False))
+        if changed:
+            ax.yaxis.grid(grid_major_y)
 
         gridlines_x = ax.get_xgridlines()
         alpha = gridlines_x[0].get_alpha()
