@@ -242,6 +242,14 @@ class MPLView():
             ax.spines['left'].set_edgecolor(axis_color_y)
             ax.spines['right'].set_edgecolor(axis_color_y)
 
+        changed, top_spine_on = imgui.checkbox("Top Spine On", ax.spines['top'].get_visible())
+        if changed:
+            ax.spines['top'].set_visible(top_spine_on)
+
+        changed, right_spine_on = imgui.checkbox("Right Spine On", ax.spines['right'].get_visible())
+        if changed:
+            ax.spines['right'].set_visible(right_spine_on)
+
         changed, axis_on = imgui.checkbox("Axis On", ax.axison)
         if changed:
             ax.set_axis_on() if axis_on else ax.set_axis_off()
