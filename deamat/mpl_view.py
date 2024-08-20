@@ -74,7 +74,7 @@ class MPLView():
                     if tab.selected:
                         self._axes_settings_ui(ax)
 
-    def _text_ui(self, text_object):
+    def _font_ui(self, text_object):
         if isinstance(text_object, list):
             mpl_text = text_object[0]
         else:
@@ -166,7 +166,7 @@ class MPLView():
         if changed:
             fig.suptitle(sptext)
 
-        self._text_ui(fig._suptitle)
+        self._font_ui(fig._suptitle)
 
     def _figure_settings_ui(self, fig):
         imgui.text('Figure settings')
@@ -293,7 +293,7 @@ class MPLView():
         expanded, _ = imgui.collapsing_header('X Tick properties')
         if expanded:
             imgui.begin_child('xtickprops')
-            self._text_ui(ax.xaxis.get_ticklabels())
+            self._font_ui(ax.xaxis.get_ticklabels())
             imgui.end_child()
 
     def _axes_settings_ui(self, ax):
@@ -320,6 +320,7 @@ class MPLView():
             imgui.end_child()
 
     def _rerender_figure(self, fig, width=None, height=None):
+        print('rendering!')
         dummy = plt.figure()
         new_manager = dummy.canvas.manager
         new_manager.canvas.figure = fig
@@ -338,8 +339,8 @@ class MPLView():
 
         # Left column for the figure
         # imgui.set_column_width(-1, imgui.get_window_width() - state.sidebar_width)
-        if state.fig_colwidth != imgui.get_column_width():
-            state.fig_colwidth = imgui.get_column_width()
+        if state.fig_colwidth != imgui.get_column_width() - 20:
+            state.fig_colwidth = imgui.get_column_width() - 20
             self._rerender_figure(fig, width=state.fig_colwidth)
 
         self._figure_view_ui(state, fig)
