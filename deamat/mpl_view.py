@@ -229,18 +229,14 @@ class MPLView():
                 line.set_color(grid_color_y)
 
     def _axis_settings(self, ax):
-        axis_color_x = ax.spines['bottom'].get_edgecolor()
-        axis_color_y = ax.spines['left'].get_edgecolor()
-
-        changed, axis_color_x = imgui.color_edit3("X Axis Color", *axis_color_x[:3])
+        imgui.text('Axis Labels')
+        changed, xlabel = imgui.input_text("X Label", ax.get_xlabel(), 256)
         if changed:
-            ax.spines['bottom'].set_edgecolor(axis_color_x)
-            ax.spines['top'].set_edgecolor(axis_color_x)
+            ax.set_xlabel(xlabel)
 
-        changed, axis_color_y = imgui.color_edit3("Y Axis Color", *axis_color_y[:3])
+        changed, ylabel = imgui.input_text("Y Label", ax.get_ylabel(), 256)
         if changed:
-            ax.spines['left'].set_edgecolor(axis_color_y)
-            ax.spines['right'].set_edgecolor(axis_color_y)
+            ax.set_ylabel(ylabel)
 
         changed, top_spine_on = imgui.checkbox("Top Spine On", ax.spines['top'].get_visible())
         if changed:
@@ -258,14 +254,18 @@ class MPLView():
         if changed:
             ax.set_frame_on(frame_on)
 
-        imgui.text('Axis Labels')
-        changed, xlabel = imgui.input_text("X Label", ax.get_xlabel(), 256)
-        if changed:
-            ax.set_xlabel(xlabel)
+        axis_color_x = ax.spines['bottom'].get_edgecolor()
+        axis_color_y = ax.spines['left'].get_edgecolor()
 
-        changed, ylabel = imgui.input_text("Y Label", ax.get_ylabel(), 256)
+        changed, axis_color_x = imgui.color_edit3("X Axis Color", *axis_color_x[:3])
         if changed:
-            ax.set_ylabel(ylabel)
+            ax.spines['bottom'].set_edgecolor(axis_color_x)
+            ax.spines['top'].set_edgecolor(axis_color_x)
+
+        changed, axis_color_y = imgui.color_edit3("Y Axis Color", *axis_color_y[:3])
+        if changed:
+            ax.spines['left'].set_edgecolor(axis_color_y)
+            ax.spines['right'].set_edgecolor(axis_color_y)
 
     def _axes_settings_ui(self, ax):
         imgui.text('Axes settings')
