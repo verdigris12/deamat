@@ -209,6 +209,14 @@ class MPLView():
             for spine in ax.spines.values():
                 spine.set_edgecolor(axis_color)
 
+        changed, axis_on = imgui.checkbox("Axis On", ax.axison)
+        if changed:
+            ax.set_axis_on() if axis_on else ax.set_axis_off()
+
+        changed, frame_on = imgui.checkbox("Frame On", ax.get_frame_on())
+        if changed:
+            ax.set_frame_on(frame_on)
+
         imgui.text('Axis Labels')
         changed, xlabel = imgui.input_text("X Label", ax.get_xlabel(), 256)
         if changed:
