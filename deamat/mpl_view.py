@@ -63,7 +63,7 @@ class MPLView():
         fig = state.fig
 
         if imgui.button("Apply Changes"):
-            self._rerender_figure(fig)
+            self._rerender_figure(fig, width=state.fig_colwidth)
 
         with imgui.begin_tab_bar("CfgTabs"):
             with imgui.begin_tab_item("Figure") as tab:
@@ -74,8 +74,12 @@ class MPLView():
                     if tab.selected:
                         self._axes_settings_ui(ax)
 
-    def _text_ui(self, mpl_text, update_callback):
-        mpltext_text = mpl_text.get_text()
+    def _text_ui(self, text_object):
+        if isinstance(text_object, list):
+            mpl_text = text_object[0]
+        else:
+            mpl_text = text_object
+
         mpltext_fontsize = mpl_text.get_fontsize()
         mpltext_fontweight = mpl_text.get_fontweight()
         mpltext_font = mpl_text.get_fontname()
@@ -85,17 +89,21 @@ class MPLView():
         mpltext_y = mpl_text.get_position()[1]
 
         def update_mpltext():
-            update_callback(
-                mpltext_text, fontsize=mpltext_fontsize, fontweight=mpltext_fontweight,
-                fontname=mpltext_font, verticalalignment=mpltext_va, horizontalalignment=mpltext_ha,
-                x=mpltext_x, y=mpltext_y
-            )
-
-        changed, mpltext_text = imgui.input_text(
-            "Text", mpl_text.get_text(), 256
-        )
-        if changed:
-            update_mpltext()
+            if isinstance(text_object, list):
+                for element in text_object:
+                    element.set(
+                        fontsize=mpltext_fontsize, fontweight=mpltext_fontweight,
+                        fontname=mpltext_font,
+                        verticalalignment=mpltext_va, horizontalalignment=mpltext_ha,
+                        x=mpltext_x, y=mpltext_y
+                    )
+            else:
+                mpl_text.set(
+                    fontsize=mpltext_fontsize, fontweight=mpltext_fontweight,
+                    fontname=mpltext_font,
+                    verticalalignment=mpltext_va, horizontalalignment=mpltext_ha,
+                    x=mpltext_x, y=mpltext_y
+                )
 
         changed, mpltext_fontsize = imgui.input_int(
             "Font Size", mpl_text.get_fontsize()
@@ -154,7 +162,11 @@ class MPLView():
         if has_suptitle and fig._suptitle is None:
             fig.suptitle("")
 
-        self._text_ui(fig._suptitle, fig.suptitle)
+        changed, sptext = imgui.input_text("Suptitle text", fig._suptitle.get_text(), 256)
+        if changed:
+            fig.suptitle(sptext)
+
+        self._text_ui(fig._suptitle)
 
     def _figure_settings_ui(self, fig):
         imgui.text('Figure settings')
@@ -275,6 +287,14 @@ class MPLView():
         if changed:
             ax.spines['left'].set_edgecolor(axis_color_y)
             ax.spines['right'].set_edgecolor(axis_color_y)
+
+        # def update_text_list(mpl_text_list, **kwargs):
+            # for f in
+        expanded, _ = imgui.collapsing_header('X Tick properties')
+        if expanded:
+            imgui.begin_child('xtickprops')
+            self._text_ui(ax.xaxis.get_ticklabels())
+            imgui.end_child()
 
     def _axes_settings_ui(self, ax):
         imgui.text('Axes settings')
