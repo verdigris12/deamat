@@ -187,19 +187,34 @@ class MPLView():
             ax.yaxis.grid(grid_major_y)
 
         gridlines_x = ax.get_xgridlines()
-        alpha = gridlines_x[0].get_alpha()
-        changed, alpha = imgui.slider_float(
-            "Grid Alpha (Major, Minor)", alpha, 0.0, 1.0
+        alpha_x = gridlines_x[0].get_alpha()
+        changed, alpha_x = imgui.slider_float(
+            "X Grid Alpha", alpha_x, 0.0, 1.0
         )
         if changed:
-            for line in ax.get_xgridlines() + ax.get_ygridlines():
-                line.set_alpha(alpha)
+            for line in ax.get_xgridlines():
+                line.set_alpha(alpha_x)
 
-        grid_color = mcolors.to_rgba(gridlines_x[0].get_color())
-        changed, grid_color = imgui.color_edit3("Grid Color", *grid_color[:3])
+        gridlines_y = ax.get_ygridlines()
+        alpha_y = gridlines_y[0].get_alpha()
+        changed, alpha_y = imgui.slider_float(
+            "Y Grid Alpha", alpha_y, 0.0, 1.0
+        )
         if changed:
-            for line in ax.get_xgridlines() + ax.get_ygridlines():
-                line.set_color(grid_color)
+            for line in ax.get_ygridlines():
+                line.set_alpha(alpha_y)
+
+        grid_color_x = mcolors.to_rgba(gridlines_x[0].get_color())
+        changed, grid_color_x = imgui.color_edit3("X Grid Color", *grid_color_x[:3])
+        if changed:
+            for line in ax.get_xgridlines():
+                line.set_color(grid_color_x)
+
+        grid_color_y = mcolors.to_rgba(gridlines_y[0].get_color())
+        changed, grid_color_y = imgui.color_edit3("Y Grid Color", *grid_color_y[:3])
+        if changed:
+            for line in ax.get_ygridlines():
+                line.set_color(grid_color_y)
 
     def _axis_settings(self, ax):
         axis_color = ax.spines['bottom'].get_edgecolor()
