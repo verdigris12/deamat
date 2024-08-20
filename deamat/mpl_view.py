@@ -257,6 +257,15 @@ class MPLView():
         axis_color_x = ax.spines['bottom'].get_edgecolor()
         axis_color_y = ax.spines['left'].get_edgecolor()
 
+        changed, (linewidth_x, linewidth_y) = imgui.input_float2(
+            "Axis Linewidth (X, Y)", ax.spines['bottom'].get_linewidth(), ax.spines['left'].get_linewidth()
+        )
+        if changed:
+            ax.spines['bottom'].set_linewidth(linewidth_x)
+            ax.spines['top'].set_linewidth(linewidth_x)
+            ax.spines['left'].set_linewidth(linewidth_y)
+            ax.spines['right'].set_linewidth(linewidth_y)
+
         changed, axis_color_x = imgui.color_edit3("X Axis Color", *axis_color_x[:3])
         if changed:
             ax.spines['bottom'].set_edgecolor(axis_color_x)
