@@ -181,7 +181,7 @@ class MPLView():
         changed, grid_major_x = imgui.checkbox("Show X Grid", ax.xaxis._major_tick_kw.get('gridOn', False))
         if changed:
             ax.xaxis.grid(grid_major_x)
-        
+
         changed, grid_major_y = imgui.checkbox("Show Y Grid", ax.yaxis._major_tick_kw.get('gridOn', False))
         if changed:
             ax.yaxis.grid(grid_major_y)
