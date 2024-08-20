@@ -7,7 +7,7 @@ from matplotlib import font_manager
 import matplotlib.colors as mcolors
 
 import imgui
-import imgui_bundle.pfd as pfd
+from imgui_bundle import portable_file_dialogs as pfd
 
 from .guistate import GUIState
 from .gui import GUI
