@@ -341,8 +341,8 @@ class MPLView():
     def update_ui(self, state, gui, dt):
         if imgui.begin_main_menu_bar():
             if imgui.begin_menu("File", True):
-                clicked_open, _ = imgui.menu_item("Open", "Ctrl+O", False, True)
-                clicked_save, _ = imgui.menu_item("Save", "Ctrl+S", False, True)
+                clicked_save, _ = imgui.menu_item("Save as pickle", "Ctrl+S", False, True)
+                clicked_save, _ = imgui.menu_item("Export as PNG", "Ctrl+S", False, True)
                 clicked_exit, _ = imgui.menu_item("Exit", "Ctrl+Q", False, True)
                 if clicked_exit:
                     exit(0)
