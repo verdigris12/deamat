@@ -177,15 +177,13 @@ class MPLView():
 
         self._figure_suptitile_ui(fig)
 
-    def _axes_settings_ui(self, ax):
-        imgui.text('Axes settings')
-
-        changed, grid_major = imgui.checkbox("Show Major Grid", ax.xaxis._major_tick_kw.get('gridOn', False))
+    def _axis_grid_settings(self, ax):
+        changed, grid_major = imgui.checkbox("Show Grid", ax.xaxis._major_tick_kw.get('gridOn', False))
         if changed:
             ax.grid(grid_major)
 
-        major_gridlines_x = ax.get_xgridlines()
-        alpha = major_gridlines_x[0].get_alpha()
+        gridlines_x = ax.get_xgridlines()
+        alpha = gridlines_x[0].get_alpha()
         changed, alpha = imgui.slider_float(
             "Grid Alpha (Major, Minor)", alpha, 0.0, 1.0
         )
@@ -193,16 +191,13 @@ class MPLView():
             for line in ax.get_xgridlines() + ax.get_ygridlines():
                 line.set_alpha(alpha)
 
-        changed, bg_color = imgui.color_edit3("Background Color", *ax.get_facecolor()[:3])
-        if changed:
-            ax.set_facecolor(bg_color)
-
-        grid_color = mcolors.to_rgba(major_gridlines_x[0].get_color())
+        grid_color = mcolors.to_rgba(gridlines_x[0].get_color())
         changed, grid_color = imgui.color_edit3("Grid Color", *grid_color[:3])
         if changed:
             for line in ax.get_xgridlines() + ax.get_ygridlines():
                 line.set_color(grid_color)
 
+    def _axis_settings(self, ax):
         axis_color = ax.spines['bottom'].get_edgecolor()
         changed, axis_color = imgui.color_edit3("Axis Color", *axis_color[:3])
         if changed:
@@ -226,9 +221,28 @@ class MPLView():
         if changed:
             ax.set_ylabel(ylabel)
 
+    def _axes_settings_ui(self, ax):
+        imgui.text('Axes settings')
+
         changed, title = imgui.input_text("Title", ax.get_title(), 256)
         if changed:
             ax.set_title(title)
+
+        changed, bg_color = imgui.color_edit3("Background Color", *ax.get_facecolor()[:3])
+        if changed:
+            ax.set_facecolor(bg_color)
+
+        expanded, _ = imgui.collapsing_header('Grid')
+        if expanded:
+            imgui.begin_child('GridSettings', border=True)
+            self._axis_grid_settings(ax)
+            imgui.end_child()
+
+        expanded, _ = imgui.collapsing_header('Axis')
+        if expanded:
+            imgui.begin_child('Axis', border=True)
+            self._axis_settings(ax)
+            imgui.end_child()
 
     def _rerender_figure(self, fig, width=None, height=None):
         dummy = plt.figure()
