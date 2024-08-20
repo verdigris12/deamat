@@ -4,6 +4,7 @@ import pickle
 import imgui_datascience as imgui_ds
 import matplotlib.pyplot as plt
 from matplotlib import font_manager
+import matplotlib.colors as mcolors
 
 import imgui
 
@@ -196,24 +197,7 @@ class MPLView():
         if changed:
             ax.set_facecolor(bg_color)
 
-        changed, grid_major = imgui.checkbox("Show Major Grid", ax.xaxis._major_tick_kw.get('gridOn', False))
-        if changed:
-            ax.grid(grid_major)
-
-        major_gridlines_x = ax.get_xgridlines()
-        alpha = major_gridlines_x[0].get_alpha()
-        changed, alpha = imgui.slider_float(
-            "Grid Alpha (Major, Minor)", alpha, 0.0, 1.0
-        )
-        if changed:
-            for line in ax.get_xgridlines() + ax.get_ygridlines():
-                line.set_alpha(alpha)
-
-        changed, bg_color = imgui.color_edit3("Background Color", *ax.get_facecolor()[:3])
-        if changed:
-            ax.set_facecolor(bg_color)
-
-        grid_color = major_gridlines_x[0].get_color()
+        grid_color = mcolors.to_rgba(major_gridlines_x[0].get_color())
         changed, grid_color = imgui.color_edit3("Grid Color", *grid_color[:3])
         if changed:
             for line in ax.get_xgridlines() + ax.get_ygridlines():
