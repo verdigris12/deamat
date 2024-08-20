@@ -229,11 +229,18 @@ class MPLView():
                 line.set_color(grid_color_y)
 
     def _axis_settings(self, ax):
-        axis_color = ax.spines['bottom'].get_edgecolor()
-        changed, axis_color = imgui.color_edit3("Axis Color", *axis_color[:3])
+        axis_color_x = ax.spines['bottom'].get_edgecolor()
+        axis_color_y = ax.spines['left'].get_edgecolor()
+
+        changed, axis_color_x = imgui.color_edit3("X Axis Color", *axis_color_x[:3])
         if changed:
-            for spine in ax.spines.values():
-                spine.set_edgecolor(axis_color)
+            ax.spines['bottom'].set_edgecolor(axis_color_x)
+            ax.spines['top'].set_edgecolor(axis_color_x)
+
+        changed, axis_color_y = imgui.color_edit3("Y Axis Color", *axis_color_y[:3])
+        if changed:
+            ax.spines['left'].set_edgecolor(axis_color_y)
+            ax.spines['right'].set_edgecolor(axis_color_y)
 
         changed, axis_on = imgui.checkbox("Axis On", ax.axison)
         if changed:
