@@ -346,8 +346,7 @@ class MPLView():
                 clicked_save, _ = imgui.menu_item("Export as PNG", "Ctrl+S", False, True)
                 clicked_exit, _ = imgui.menu_item("Exit", "Ctrl+Q", False, True)
                 if clicked_save_pickle:
-                    file_dialog = pfd.SaveDialog("Save Figure as Pickle", "Pickle files (*.pkl)\0*.pkl\0All files (*.*)\0*.*\0")
-                    file_path = file_dialog.result()
+                    file_path = pfd.save_file("Save Figure as Pickle", "", "", ["Pickle files (*.pkl)", "All files (*.*)"])
                     if file_path:
                         with open(file_path, 'wb') as file:
                             pickle.dump(self.state.fig, file)
