@@ -186,6 +186,8 @@ class MPLView():
         if changed:
             ax.yaxis.grid(grid_major_y)
 
+        linetypes = ['-', '--', '-.', ':']
+        
         gridlines_x = ax.get_xgridlines()
         gridlines_y = ax.get_ygridlines()
         alpha_x = gridlines_x[0].get_alpha()
@@ -198,6 +200,20 @@ class MPLView():
                 line.set_alpha(alpha_x)
             for line in ax.get_ygridlines():
                 line.set_alpha(alpha_y)
+
+        changed, linetype_x = imgui.combo(
+            "X Grid Linetype", linetypes.index(gridlines_x[0].get_linestyle()), linetypes
+        )
+        if changed:
+            for line in ax.get_xgridlines():
+                line.set_linestyle(linetype_x)
+
+        changed, linetype_y = imgui.combo(
+            "Y Grid Linetype", linetypes.index(gridlines_y[0].get_linestyle()), linetypes
+        )
+        if changed:
+            for line in ax.get_ygridlines():
+                line.set_linestyle(linetype_y)
 
         grid_color_x = mcolors.to_rgba(gridlines_x[0].get_color())
         grid_color_y = mcolors.to_rgba(gridlines_y[0].get_color())
