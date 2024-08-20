@@ -187,6 +187,7 @@ class MPLView():
             ax.yaxis.grid(grid_major_y)
 
         gridlines_x = ax.get_xgridlines()
+        gridlines_y = ax.get_ygridlines()
         alpha_x = gridlines_x[0].get_alpha()
         alpha_y = gridlines_y[0].get_alpha()
         changed, (alpha_x, alpha_y) = imgui.slider_float2(
@@ -199,6 +200,7 @@ class MPLView():
                 line.set_alpha(alpha_y)
 
         grid_color_x = mcolors.to_rgba(gridlines_x[0].get_color())
+        grid_color_y = mcolors.to_rgba(gridlines_y[0].get_color())
         changed, grid_color_x = imgui.color_edit3("X Grid Color", *grid_color_x[:3])
         if changed:
             for line in ax.get_xgridlines():
