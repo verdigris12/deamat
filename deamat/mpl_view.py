@@ -188,19 +188,13 @@ class MPLView():
 
         gridlines_x = ax.get_xgridlines()
         alpha_x = gridlines_x[0].get_alpha()
-        changed, alpha_x = imgui.slider_float(
-            "X Grid Alpha", alpha_x, 0.0, 1.0
+        alpha_y = gridlines_y[0].get_alpha()
+        changed, (alpha_x, alpha_y) = imgui.slider_float2(
+            "Grid Alpha (X, Y)", alpha_x, alpha_y, 0.0, 1.0
         )
         if changed:
             for line in ax.get_xgridlines():
                 line.set_alpha(alpha_x)
-
-        gridlines_y = ax.get_ygridlines()
-        alpha_y = gridlines_y[0].get_alpha()
-        changed, alpha_y = imgui.slider_float(
-            "Y Grid Alpha", alpha_y, 0.0, 1.0
-        )
-        if changed:
             for line in ax.get_ygridlines():
                 line.set_alpha(alpha_y)
 
