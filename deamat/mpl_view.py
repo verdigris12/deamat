@@ -83,30 +83,28 @@ class MPLView():
         mpltext_fontsize = mpl_text.get_fontsize()
         mpltext_fontweight = mpl_text.get_fontweight()
         mpltext_font = mpl_text.get_fontname()
-        mpltext_color = mpl_text.get_color()
+        mpltext_color = mcolors.to_rgba(mpl_text.get_color())
         mpltext_va = mpl_text.get_va()
         mpltext_ha = mpl_text.get_ha()
         mpltext_x = mpl_text.get_position()[0]
         mpltext_y = mpl_text.get_position()[1]
 
         def update_mpltext():
-            if isinstance(text_object, list):
-                for element in text_object:
-                    element.set(
-                        fontsize=mpltext_fontsize, fontweight=mpltext_fontweight,
-                        fontname=mpltext_font,
-                        verticalalignment=mpltext_va, horizontalalignment=mpltext_ha,
-                        x=mpltext_x, y=mpltext_y,
-                        color=mpltext_color
-                    )
-            else:
-                mpl_text.set(
+
+            def update(mtext):
+                mtext.set(
                     fontsize=mpltext_fontsize, fontweight=mpltext_fontweight,
                     fontname=mpltext_font,
                     verticalalignment=mpltext_va, horizontalalignment=mpltext_ha,
                     x=mpltext_x, y=mpltext_y,
                     color=mpltext_color
                 )
+
+            if isinstance(text_object, list):
+                for element in text_object:
+                    update(element)
+            else:
+                update(mpl_text)
 
         changed, mpltext_fontsize = imgui.input_int(
             "Font Size", mpl_text.get_fontsize()
