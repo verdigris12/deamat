@@ -5,9 +5,10 @@ import imgui_datascience as imgui_ds
 import matplotlib.pyplot as plt
 from matplotlib import font_manager
 import matplotlib.colors as mcolors
+import cv2
 
-import imgui
 from imgui_bundle import portable_file_dialogs as pfd
+from imgui_bundle import imgui, immvision, ImVec2, imgui_fig
 
 from .guistate import GUIState
 from .gui import GUI
@@ -21,6 +22,12 @@ class MPLVState(GUIState):
         self.fig_y = None
         self.fig_colwidth = None
         self.sidebar_width = 200
+
+        # self.image = cv2.imread(
+        #     "/home/monday/img/GNISZegXwAA2ZKq.jpeg", cv2.IMREAD_UNCHANGED
+        # )
+        # self.image_params = immvision.ImageParams()
+        # self.image_size = ImVec2(100, 100)
 
     def load_figure(self, filename):
         with open(filename, 'rb') as file:
@@ -64,16 +71,16 @@ class MPLView():
         fig = state.fig
 
         if imgui.button("Apply Changes"):
-            self._rerender_figure(fig, width=state.fig_colwidth)
+            pass
 
-        with imgui.begin_tab_bar("CfgTabs"):
-            with imgui.begin_tab_item("Figure") as tab:
-                if tab.selected:
-                    self._figure_settings_ui(fig)
-            for ax_n, ax in enumerate(fig.axes):
-                with imgui.begin_tab_item(f'Axes {ax_n}') as tab:
-                    if tab.selected:
-                        self._axes_settings_ui(ax)
+        # if imgui.begin_tab_bar("SidebarTabs"):
+            # imgui.text('123')
+            # pass
+            # if imgui.begin_tab_item("Figure"):
+                # self._figure_settings_ui(fig)
+            # for ax_n, ax in enumerate(fig.axes):
+            #     if imgui.begin_tab_item(f'Axes {ax_n}'):
+            #         self._axes_settings_ui(ax)
 
     def _font_ui(self, text_object):
         if isinstance(text_object, list):
@@ -108,7 +115,7 @@ class MPLView():
                 update(mpl_text)
 
         changed, mpltext_fontsize = imgui.input_int(
-            "Font Size", mpl_text.get_fontsize()
+            "Font Size", int(mpl_text.get_fontsize())
         )
         if changed:
             update_mpltext()
@@ -149,12 +156,12 @@ class MPLView():
             mpltext_ha = horizontal_alignments[selected_ha]
             update_mpltext()
 
-        changed, mpltext_color = imgui.color_edit3("Font Color", *mpltext_color[:3])
+        changed, mpltext_color = imgui.color_edit3("Font Color", mpltext_color[:3])
         if changed:
             update_mpltext()
 
         changed, (mpltext_x, mpltext_y) = imgui.input_float2(
-            "Position", mpltext_x, mpltext_y
+            "Position", (mpltext_x, mpltext_y)
         )
         if changed:
             update_mpltext()
@@ -189,7 +196,7 @@ class MPLView():
         if changed:
             fig.set_dpi(fig_dpi)
 
-        changed, bg_color = imgui.color_edit3("Background Color", *fig.get_facecolor()[:3])
+        changed, bg_color = imgui.color_edit3("Background Color", fig.get_facecolor()[:3])
         if changed:
             fig.patch.set_facecolor(bg_color)
 
@@ -235,13 +242,13 @@ class MPLView():
 
         grid_color_x = mcolors.to_rgba(gridlines_x[0].get_color())
         grid_color_y = mcolors.to_rgba(gridlines_y[0].get_color())
-        changed, grid_color_x = imgui.color_edit3("X Grid Color", *grid_color_x[:3])
+        changed, grid_color_x = imgui.color_edit3("X Grid Color", grid_color_x[:3])
         if changed:
             for line in ax.get_xgridlines():
                 line.set_color(grid_color_x)
 
         grid_color_y = mcolors.to_rgba(gridlines_y[0].get_color())
-        changed, grid_color_y = imgui.color_edit3("Y Grid Color", *grid_color_y[:3])
+        changed, grid_color_y = imgui.color_edit3("Y Grid Color", grid_color_y[:3])
         if changed:
             for line in ax.get_ygridlines():
                 line.set_color(grid_color_y)
@@ -284,12 +291,12 @@ class MPLView():
             ax.spines['left'].set_linewidth(linewidth_y)
             ax.spines['right'].set_linewidth(linewidth_y)
 
-        changed, axis_color_x = imgui.color_edit3("X Axis Color", *axis_color_x[:3])
+        changed, axis_color_x = imgui.color_edit3("X Axis Color", axis_color_x[:3])
         if changed:
             ax.spines['bottom'].set_edgecolor(axis_color_x)
             ax.spines['top'].set_edgecolor(axis_color_x)
 
-        changed, axis_color_y = imgui.color_edit3("Y Axis Color", *axis_color_y[:3])
+        changed, axis_color_y = imgui.color_edit3("Y Axis Color", axis_color_y[:3])
         if changed:
             ax.spines['left'].set_edgecolor(axis_color_y)
             ax.spines['right'].set_edgecolor(axis_color_y)
@@ -309,35 +316,19 @@ class MPLView():
         if changed:
             ax.set_title(title)
 
-        changed, bg_color = imgui.color_edit3("Background Color", *ax.get_facecolor()[:3])
+        changed, bg_color = imgui.color_edit3("Axes Background Color", ax.get_facecolor()[:3])
         if changed:
             ax.set_facecolor(bg_color)
 
-        expanded, _ = imgui.collapsing_header('Grid')
-        if expanded:
+        if imgui.collapsing_header('Grid'):
             imgui.begin_child('GridSettings', border=True)
             self._axis_grid_settings(ax)
             imgui.end_child()
 
-        expanded, _ = imgui.collapsing_header('Axis')
-        if expanded:
+        if imgui.collapsing_header('Axis'):
             imgui.begin_child('Axis', border=True)
             self._axis_settings(ax)
             imgui.end_child()
-
-    def _rerender_figure(self, fig, width=None, height=None):
-        print('rendering!')
-        dummy = plt.figure()
-        new_manager = dummy.canvas.manager
-        new_manager.canvas.figure = fig
-        fig.set_canvas(new_manager.canvas)
-        if width is not None:
-            fig.set_figwidth(width / fig.dpi)
-        if height is not None:
-            fig.set_figheight(height / fig.dpi)
-        # This clears rendered figure cache and forces rerendering
-        self.state.invalidate_all_figures()
-        imgui_ds.imgui_fig._fig_to_image.statics.fig_cache.clear()
 
     def update_ui(self, state, gui, dt):
         if imgui.begin_main_menu_bar():
@@ -346,7 +337,10 @@ class MPLView():
                 clicked_save, _ = imgui.menu_item("Export as PNG", "Ctrl+S", False, True)
                 clicked_exit, _ = imgui.menu_item("Exit", "Ctrl+Q", False, True)
                 if clicked_save_pickle:
-                    file_path = pfd.save_file("Save Figure as Pickle", "", "", ["Pickle files (*.pkl)", "All files (*.*)"])
+                    file_path = pfd.save_file(
+                        "Save Figure as Pickle", "", "",
+                        ["Pickle files (*.pkl)", "All files (*.*)"]
+                    )
                     if file_path:
                         with open(file_path, 'wb') as file:
                             pickle.dump(self.state.fig, file)
@@ -356,15 +350,12 @@ class MPLView():
             imgui.end_main_menu_bar()
 
         imgui.columns(2, "columns", True)
-        fig = state.figures['Fig']['figure']
 
         # Left column for the figure
-        # imgui.set_column_width(-1, imgui.get_window_width() - state.sidebar_width)
         if state.fig_colwidth != imgui.get_column_width() - 20:
             state.fig_colwidth = imgui.get_column_width() - 20
-            self._rerender_figure(fig, width=state.fig_colwidth)
 
-        self._figure_view_ui(state, fig)
+        imgui_fig.fig('', state.fig)
 
         imgui.next_column()
 
