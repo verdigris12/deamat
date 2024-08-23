@@ -339,7 +339,8 @@ class MPLView():
                 imgui.end_menu()
             imgui.end_main_menu_bar()
 
-        imgui.columns(2, "columns", True)
+        imgui.columns(2, "columns", False)
+        imgui.set_column_width(1, 450)
 
         imgui_fig.fig('', state.fig, refresh_image=state.refresh_required, resizable=False)
         state.refresh_required = False
