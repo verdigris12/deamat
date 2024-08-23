@@ -380,13 +380,13 @@ class MPLView():
         )
         state.refresh_required = False
 
+        imgui.next_column()
+        self._sidebar_ui(state)
+
         # Console Drawer
         if imgui.collapsing_header("Console Drawer"):
             if imgui.button("Launch IPython Console"):
                 embed()
-
-        imgui.next_column()
-        self._sidebar_ui(state)
 
     def run(self):
         self.gui.run()
