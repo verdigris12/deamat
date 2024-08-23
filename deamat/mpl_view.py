@@ -383,24 +383,5 @@ class MPLView():
         imgui.next_column()
         self._sidebar_ui(state)
 
-        # Console Drawer
-        if imgui.collapsing_header("Console Drawer"):
-            if not hasattr(self, 'console_output'):
-                self.console_output = ""
-            if not hasattr(self, 'console'):
-                self.console = InteractiveShellEmbed()
-            
-            imgui.begin_child("ConsoleOutput", width=0, height=200, border=True)
-            imgui.text_unformatted(self.console_output)
-            imgui.end_child()
-            
-            imgui.separator()
-            
-            changed, self.console_input = imgui.input_text("Input", "", 256)
-            if changed and imgui.is_key_pressed(imgui.KEY_ENTER):
-                output = self.console.run_cell(self.console_input)
-                self.console_output += f"\n>>> {self.console_input}\n{output}"
-                self.console_input = ""
-
     def run(self):
         self.gui.run()
