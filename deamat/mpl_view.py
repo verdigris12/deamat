@@ -1,14 +1,11 @@
 #!/usr/bin/env python3
 
 import pickle
-import imgui_datascience as imgui_ds
-import matplotlib.pyplot as plt
 from matplotlib import font_manager
 import matplotlib.colors as mcolors
-import cv2
 
 from imgui_bundle import portable_file_dialogs as pfd
-from imgui_bundle import imgui, immvision, ImVec2, imgui_fig
+from imgui_bundle import imgui, ImVec2, imgui_fig
 
 from .guistate import GUIState
 from .gui import GUI
@@ -22,12 +19,7 @@ class MPLVState(GUIState):
         self.fig_y = None
         self.fig_colwidth = None
         self.sidebar_width = 200
-
-        # self.image = cv2.imread(
-        #     "/home/monday/img/GNISZegXwAA2ZKq.jpeg", cv2.IMREAD_UNCHANGED
-        # )
-        # self.image_params = immvision.ImageParams()
-        # self.image_size = ImVec2(100, 100)
+        self.refresh_required = True
 
     def load_figure(self, filename):
         with open(filename, 'rb') as file:
@@ -42,12 +34,6 @@ class MPLView():
         self.gui.update = lambda state, gui, dt: self.update_ui(state, gui, dt)
         self.gui.main_window_fullscreen = True
 
-        # Reset canvas if the figure was pickled before
-        dummy = plt.figure()
-        new_manager = dummy.canvas.manager
-        new_manager.canvas.figure = fig
-        fig.set_canvas(new_manager.canvas)
-
         self.gui.state.add_figure(
             'Fig',
             lambda state: self.state.fig,
@@ -56,12 +42,13 @@ class MPLView():
             title='Figure 1'
         )
 
-    def _figure_view_ui(self, state, fig):
-        imgui_ds.imgui_fig.fig(figure=state.fig, title='')
+    def _figure_view_ui(self):
+        state = self.state
+        figure = state.figure
 
         if imgui.is_mouse_clicked(imgui.MOUSE_BUTTON_LEFT):
             mouse_x, mouse_y = imgui.get_mouse_pos()
-            ax = state.fig.gca()
+            ax = figure.gca()
             if ax.bbox.contains(mouse_x, mouse_y):
                 self.state.fig_x, self.state.fig_y = ax.transData.inverted().transform(
                     (mouse_x, mouse_y)
@@ -354,13 +341,11 @@ class MPLView():
 
         imgui.columns(2, "columns", True)
 
-        # Left column for the figure
-        if state.fig_colwidth != imgui.get_column_width() - 20:
-            state.fig_colwidth = imgui.get_column_width() - 20
-
-        imgui_fig.fig('', state.fig)
+        imgui_fig.fig('', state.fig, refresh_image=state.refresh_required, resizable=False)
+        state.refresh_required = False
 
         imgui.next_column()
+        # imgui.text(f'{imgui.get_column_width()}')
 
         self._sidebar_ui(state)
 
