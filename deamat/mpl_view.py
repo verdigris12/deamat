@@ -68,19 +68,20 @@ class MPLView():
                 )
 
     def _sidebar_ui(self, state):
-        fig = state.fig
 
         if imgui.button("Apply Changes"):
             pass
 
-        # if imgui.begin_tab_bar("SidebarTabs"):
-            # imgui.text('123')
-            # pass
-            # if imgui.begin_tab_item("Figure"):
-                # self._figure_settings_ui(fig)
-            # for ax_n, ax in enumerate(fig.axes):
-            #     if imgui.begin_tab_item(f'Axes {ax_n}'):
-            #         self._axes_settings_ui(ax)
+        if imgui.begin_tab_bar("SidebarTabs"):
+            if imgui.begin_tab_item("Figure")[0]:
+                self._figure_settings_ui(state.fig)
+                imgui.end_tab_item()
+            for ax_n, ax in enumerate(state.fig.axes):
+                if imgui.begin_tab_item(f'Axes_{ax_n}')[0]:
+                    self._axes_settings_ui(ax)
+                    imgui.end_tab_item()
+
+            imgui.end_tab_bar()
 
     def _font_ui(self, text_object):
         if isinstance(text_object, list):
@@ -203,11 +204,15 @@ class MPLView():
         self._figure_suptitile_ui(fig)
 
     def _axis_grid_settings(self, ax):
-        changed, grid_major_x = imgui.checkbox("Show X Grid", ax.xaxis._major_tick_kw.get('gridOn', False))
+        changed, grid_major_x = imgui.checkbox(
+            "Show X Grid", ax.xaxis._major_tick_kw.get('gridOn', False)
+        )
         if changed:
             ax.xaxis.grid(grid_major_x)
 
-        changed, grid_major_y = imgui.checkbox("Show Y Grid", ax.yaxis._major_tick_kw.get('gridOn', False))
+        changed, grid_major_y = imgui.checkbox(
+            "Show Y Grid", ax.yaxis._major_tick_kw.get('gridOn', False)
+        )
         if changed:
             ax.yaxis.grid(grid_major_y)
 
@@ -218,7 +223,7 @@ class MPLView():
         alpha_x = gridlines_x[0].get_alpha()
         alpha_y = gridlines_y[0].get_alpha()
         changed, (alpha_x, alpha_y) = imgui.slider_float2(
-            "Grid Alpha (X, Y)", alpha_x, alpha_y, 0.0, 1.0
+            "Grid Alpha (X, Y)", (alpha_x, alpha_y), 0.0, 1.0
         )
         if changed:
             for line in ax.get_xgridlines():
@@ -283,7 +288,8 @@ class MPLView():
         axis_color_y = ax.spines['left'].get_edgecolor()
 
         changed, (linewidth_x, linewidth_y) = imgui.input_float2(
-            "Axis Linewidth (X, Y)", ax.spines['bottom'].get_linewidth(), ax.spines['left'].get_linewidth()
+            "Axis Linewidth (X, Y)",
+            (ax.spines['bottom'].get_linewidth(), ax.spines['left'].get_linewidth())
         )
         if changed:
             ax.spines['bottom'].set_linewidth(linewidth_x)
@@ -301,10 +307,7 @@ class MPLView():
             ax.spines['left'].set_edgecolor(axis_color_y)
             ax.spines['right'].set_edgecolor(axis_color_y)
 
-        # def update_text_list(mpl_text_list, **kwargs):
-            # for f in
-        expanded, _ = imgui.collapsing_header('X Tick properties')
-        if expanded:
+        if imgui.collapsing_header('X Tick properties'):
             imgui.begin_child('xtickprops')
             self._font_ui(ax.xaxis.get_ticklabels())
             imgui.end_child()
@@ -321,12 +324,12 @@ class MPLView():
             ax.set_facecolor(bg_color)
 
         if imgui.collapsing_header('Grid'):
-            imgui.begin_child('GridSettings', border=True)
+            imgui.begin_child('GridSettings')
             self._axis_grid_settings(ax)
             imgui.end_child()
 
         if imgui.collapsing_header('Axis'):
-            imgui.begin_child('Axis', border=True)
+            imgui.begin_child('Axis')
             self._axis_settings(ax)
             imgui.end_child()
 
