@@ -172,17 +172,20 @@ class MPLView():
     def _figure_settings_ui(self, fig):
         imgui.text('Figure settings')
 
-        changed, fig_width = imgui.input_float("Width", fig.get_figwidth(), 0.1, 1.0)
+        changed, fig_width = imgui.input_float("Width, in", fig.get_figwidth(), 0.1, 1.0)
         if changed:
             fig.set_figwidth(fig_width)
+            self.state.refresh_required = True
 
-        changed, fig_height = imgui.input_float("Height", fig.get_figheight(), 0.1, 1.0)
+        changed, fig_height = imgui.input_float("Height, in", fig.get_figheight(), 0.1, 1.0)
         if changed:
             fig.set_figheight(fig_height)
+            self.state.refresh_required = True
 
         changed, fig_dpi = imgui.input_float("DPI", fig.get_dpi(), 1.0, 10.0)
         if changed:
             fig.set_dpi(fig_dpi)
+            self.state.refresh_required = True
 
         changed, bg_color = imgui.color_edit3("Background Color", fig.get_facecolor()[:3])
         if changed:
@@ -339,21 +342,26 @@ class MPLView():
                 imgui.end_menu()
             imgui.end_main_menu_bar()
 
-        window_width, _ = imgui.get_content_region_avail()
+        available_width, available_height = imgui.get_content_region_avail()
         imgui.columns(2, "columns", False)
-        imgui.set_column_width(0, window_width - 450)
+        imgui.set_column_width(0, available_width - 450)
         imgui.set_column_width(1, 450)
 
         # Center the figure horizontally and vertically
         column_width = imgui.get_column_width()
         figure_width = state.fig.get_figwidth() * state.fig.get_dpi()
         figure_height = state.fig.get_figheight() * state.fig.get_dpi()
-        available_width, available_height = imgui.get_content_region_avail()
 
         imgui.set_cursor_pos_x((column_width - figure_width) / 2)
         imgui.set_cursor_pos_y((available_height - figure_height) / 2)
 
-        imgui_fig.fig('', state.fig, refresh_image=state.refresh_required, resizable=False)
+        imgui_fig.fig(
+            '',
+            state.fig,
+            size=(figure_width, figure_height),
+            refresh_image=state.refresh_required,
+            resizable=False
+        )
         state.refresh_required = False
 
         imgui.next_column()
