@@ -346,8 +346,6 @@ class MPLView():
         state.refresh_required = False
 
         imgui.next_column()
-        # imgui.text(f'{imgui.get_column_width()}')
-
         self._sidebar_ui(state)
 
     def run(self):
