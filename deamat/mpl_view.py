@@ -346,8 +346,8 @@ class MPLView():
 
         # Center the figure horizontally and vertically
         column_width = imgui.get_column_width()
-        figure_width = 500  # Assuming a fixed width for the figure
-        figure_height = 300  # Assuming a fixed height for the figure
+        figure_width = state.fig.get_figwidth() * state.fig.get_dpi()
+        figure_height = state.fig.get_figheight() * state.fig.get_dpi()
         available_width, available_height = imgui.get_content_region_avail()
 
         imgui.set_cursor_pos_x((column_width - figure_width) / 2)
