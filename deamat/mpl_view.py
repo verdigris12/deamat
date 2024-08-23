@@ -2,6 +2,7 @@
 
 import pickle
 from matplotlib import font_manager
+from IPython import embed
 import matplotlib.colors as mcolors
 
 from imgui_bundle import portable_file_dialogs as pfd
@@ -378,6 +379,11 @@ class MPLView():
             resizable=False
         )
         state.refresh_required = False
+
+        # Console Drawer
+        if imgui.collapsing_header("Console Drawer"):
+            if imgui.button("Launch IPython Console"):
+                embed()
 
         imgui.next_column()
         self._sidebar_ui(state)
