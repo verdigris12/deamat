@@ -302,6 +302,11 @@ class MPLView():
             self._font_ui(ax.xaxis.get_ticklabels())
             imgui.end_child()
 
+        if imgui.collapsing_header('Y Tick properties'):
+            imgui.begin_child('ytickprops')
+            self._font_ui(ax.xaxis.get_ticklabels())
+            imgui.end_child()
+
     def _axes_settings_ui(self, ax):
         imgui.text('Axes settings')
 
