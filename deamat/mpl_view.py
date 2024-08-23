@@ -5,7 +5,7 @@ from matplotlib import font_manager
 import matplotlib.colors as mcolors
 
 from imgui_bundle import portable_file_dialogs as pfd
-from imgui_bundle import imgui, ImVec2, imgui_fig
+from imgui_bundle import imgui, imgui_fig
 
 from .guistate import GUIState
 from .gui import GUI
@@ -57,7 +57,7 @@ class MPLView():
     def _sidebar_ui(self, state):
 
         if imgui.button("Apply Changes"):
-            pass
+            state.refresh_required = True
 
         if imgui.begin_tab_bar("SidebarTabs"):
             if imgui.begin_tab_item("Figure")[0]:
@@ -339,10 +339,10 @@ class MPLView():
                 imgui.end_menu()
             imgui.end_main_menu_bar()
 
-        window_width = imgui.get_window_width()
+        window_width, _ = imgui.get_content_region_avail()
         imgui.columns(2, "columns", False)
-        imgui.set_column_width(1, 450)
         imgui.set_column_width(0, window_width - 450)
+        imgui.set_column_width(1, 450)
 
         imgui_fig.fig('', state.fig, refresh_image=state.refresh_required, resizable=False)
         state.refresh_required = False
