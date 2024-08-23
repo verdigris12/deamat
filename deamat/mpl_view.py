@@ -2,7 +2,7 @@
 
 import pickle
 from matplotlib import font_manager
-from IPython import embed
+from IPython.terminal.embed import InteractiveShellEmbed
 import matplotlib.colors as mcolors
 
 from imgui_bundle import portable_file_dialogs as pfd
@@ -385,8 +385,22 @@ class MPLView():
 
         # Console Drawer
         if imgui.collapsing_header("Console Drawer"):
-            if imgui.button("Launch IPython Console"):
-                embed()
+            if not hasattr(self, 'console_output'):
+                self.console_output = ""
+            if not hasattr(self, 'console'):
+                self.console = InteractiveShellEmbed()
+            
+            imgui.begin_child("ConsoleOutput", width=0, height=200, border=True)
+            imgui.text_unformatted(self.console_output)
+            imgui.end_child()
+            
+            imgui.separator()
+            
+            changed, self.console_input = imgui.input_text("Input", "", 256)
+            if changed and imgui.is_key_pressed(imgui.KEY_ENTER):
+                output = self.console.run_cell(self.console_input)
+                self.console_output += f"\n>>> {self.console_input}\n{output}"
+                self.console_input = ""
 
     def run(self):
         self.gui.run()
