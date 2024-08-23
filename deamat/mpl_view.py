@@ -258,6 +258,16 @@ class MPLView():
         if changed:
             ax.set_ylabel(ylabel)
 
+        if imgui.collapsing_header('Font settings for X label'):
+            imgui.begin_child('ax_xlabel')
+            self._font_ui(ax.xaxis.get_label())
+            imgui.end_child()
+
+        if imgui.collapsing_header('Font settings for Y label'):
+            imgui.begin_child('ax_ylabel')
+            self._font_ui(ax.yaxis.get_label())
+            imgui.end_child()
+
         changed, top_spine_on = imgui.checkbox("Top Spine On", ax.spines['top'].get_visible())
         if changed:
             ax.spines['top'].set_visible(top_spine_on)
