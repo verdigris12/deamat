@@ -267,10 +267,11 @@ class MPLView():
         if changed:
             ax.set_ylabel(ylabel)
 
-        if imgui.button("Edit X Label Font"):
+        if imgui.button("🖉 Edit X Label Font"):
             imgui.open_popup("X Label Font Settings")
 
-        if imgui.begin_popup_modal("X Label Font Settings")[0]:
+        if imgui.begin_popup_modal("X Label Font Settings", flags=imgui.WINDOW_ALWAYS_AUTO_RESIZE)[0]:
+            imgui.set_window_size("X Label Font Settings", self.state.sidebar_width, 0)
             self._font_ui(ax.xaxis.get_label())
             if imgui.button("Close"):
                 imgui.close_current_popup()
