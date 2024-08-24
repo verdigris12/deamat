@@ -2,7 +2,6 @@
 
 import pickle
 from matplotlib import font_manager
-from IPython.terminal.embed import InteractiveShellEmbed
 import matplotlib.colors as mcolors
 
 from imgui_bundle import portable_file_dialogs as pfd
@@ -18,8 +17,7 @@ class MPLVState(GUIState):
         self.fig = fig
         self.fig_x = None
         self.fig_y = None
-        self.fig_colwidth = None
-        self.sidebar_width = 200
+        self.sidebar_width = 450
         self.refresh_required = True
 
     def load_figure(self, filename):
@@ -173,18 +171,28 @@ class MPLView():
     def _figure_settings_ui(self, fig):
         imgui.text('Figure settings')
 
-        changed, fig_width = imgui.input_float("Width, in", fig.get_figwidth(), 0.1, 1.0)
-        if changed:
+        changed, fig_width = imgui.input_float(
+            "Width, in", fig.get_figwidth(), 0.1, 1.0,
+            flags=imgui.InputTextFlags_.enter_returns_true
+        )
+        if changed and fig_width > 0.5:
             fig.set_figwidth(fig_width)
             self.state.refresh_required = True
 
-        changed, fig_height = imgui.input_float("Height, in", fig.get_figheight(), 0.1, 1.0)
-        if changed:
+        changed, fig_height = imgui.input_float(
+            "Height, in", fig.get_figheight(), 0.1, 1.0,
+            flags=imgui.InputTextFlags_.enter_returns_true
+        )
+        if changed and fig_height > 0.5:
             fig.set_figheight(fig_height)
             self.state.refresh_required = True
 
-        changed, fig_dpi = imgui.input_float("DPI", fig.get_dpi(), 1.0, 10.0)
-        if changed:
+        changed, fig_dpi = imgui.input_float(
+            "DPI", fig.get_dpi(), 1.0, 10.0,
+            flags=imgui.InputTextFlags_.enter_returns_true
+
+        )
+        if changed and fig_dpi > 10:
             fig.set_dpi(fig_dpi)
             self.state.refresh_required = True
 
@@ -360,8 +368,8 @@ class MPLView():
 
         available_width, available_height = imgui.get_content_region_avail()
         imgui.columns(2, "columns", False)
-        imgui.set_column_width(0, available_width - 450)
-        imgui.set_column_width(1, 450)
+        imgui.set_column_width(0, available_width - state.sidebar_width)
+        imgui.set_column_width(1, state.sidebar_width)
 
         # Center the figure horizontally and vertically
         column_width = imgui.get_column_width()
