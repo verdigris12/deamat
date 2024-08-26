@@ -153,21 +153,6 @@ class MPLView():
         if changed:
             update_mpltext()
 
-    def _figure_suptitile_ui(self, fig):
-        _, has_suptitle = imgui.checkbox("Figure title", fig._suptitle is not None)
-        if not has_suptitle:
-            fig.suptitle('')
-            fig._suptitle = None
-            return
-        if has_suptitle and fig._suptitle is None:
-            fig.suptitle("")
-
-        changed, sptext = imgui.input_text("Suptitle text", fig._suptitle.get_text(), 256)
-        if changed:
-            fig.suptitle(sptext)
-
-        self._font_ui(fig._suptitle)
-
     def _figure_settings_ui(self, fig):
         imgui.text('Figure settings')
 
@@ -200,7 +185,19 @@ class MPLView():
         if changed:
             fig.patch.set_facecolor(bg_color)
 
-        self._figure_suptitile_ui(fig)
+        _, has_suptitle = imgui.checkbox("Figure title", fig._suptitle is not None)
+        if not has_suptitle:
+            fig.suptitle('')
+            fig._suptitle = None
+            return
+        if has_suptitle and fig._suptitle is None:
+            fig.suptitle("")
+
+        self._font_button_ui(fig._suptitle, id="suptitle")
+        imgui.same_line()
+        changed, sptext = imgui.input_text("Suptitle text", fig._suptitle.get_text(), 256)
+        if changed:
+            fig.suptitle(sptext)
 
     def _axis_grid_settings(self, ax):
         changed, grid_major_x = imgui.checkbox(
@@ -209,6 +206,7 @@ class MPLView():
         if changed:
             ax.xaxis.grid(grid_major_x)
 
+        imgui.same_line()
         changed, grid_major_y = imgui.checkbox(
             "Show Y Grid", ax.yaxis._major_tick_kw.get('gridOn', False)
         )
@@ -273,6 +271,34 @@ class MPLView():
         imgui.pop_id()
 
     def _axis_settings(self, ax):
+        changed, axis_on = imgui.checkbox("Axis On", ax.axison)
+        if changed:
+            ax.set_axis_on() if axis_on else ax.set_axis_off()
+
+        imgui.same_line()
+        changed, frame_on = imgui.checkbox("Frame On", ax.get_frame_on())
+        if changed:
+            ax.set_frame_on(frame_on)
+
+        changed, top_spine_on = imgui.checkbox("Top Spine", ax.spines['top'].get_visible())
+        if changed:
+            ax.spines['top'].set_visible(top_spine_on)
+
+        imgui.same_line()
+        changed, bottom_spine_on = imgui.checkbox("Bottom Spine", ax.spines['bottom'].get_visible())
+        if changed:
+            ax.spines['top'].set_visible(bottom_spine_on)
+
+        imgui.same_line()
+        changed, right_spine_on = imgui.checkbox("Right Spine", ax.spines['right'].get_visible())
+        if changed:
+            ax.spines['right'].set_visible(right_spine_on)
+
+        imgui.same_line()
+        changed, left_spine_on = imgui.checkbox("Left Spine", ax.spines['left'].get_visible())
+        if changed:
+            ax.spines['left'].set_visible(left_spine_on)
+
         imgui.text('Axis Labels')
 
         self._font_button_ui(ax.yaxis.get_label(), id="xaxis_font")
@@ -287,34 +313,23 @@ class MPLView():
         if changed:
             ax.set_ylabel(ylabel)
 
-        changed, top_spine_on = imgui.checkbox("Top Spine On", ax.spines['top'].get_visible())
-        if changed:
-            ax.spines['top'].set_visible(top_spine_on)
-
-        changed, right_spine_on = imgui.checkbox("Right Spine On", ax.spines['right'].get_visible())
-        if changed:
-            ax.spines['right'].set_visible(right_spine_on)
-
-        changed, axis_on = imgui.checkbox("Axis On", ax.axison)
-        if changed:
-            ax.set_axis_on() if axis_on else ax.set_axis_off()
-
-        changed, frame_on = imgui.checkbox("Frame On", ax.get_frame_on())
-        if changed:
-            ax.set_frame_on(frame_on)
-
         axis_color_x = ax.spines['bottom'].get_edgecolor()
         axis_color_y = ax.spines['left'].get_edgecolor()
 
-        changed, (linewidth_x, linewidth_y) = imgui.input_float2(
-            "Axis Linewidth (X, Y)",
-            (ax.spines['bottom'].get_linewidth(), ax.spines['left'].get_linewidth())
+        changed, (lw_t, lw_b, lw_r, lw_l) = imgui.input_float4(
+            "Linewidth",
+            (
+                ax.spines['top'].get_linewidth(),
+                ax.spines['bottom'].get_linewidth(),
+                ax.spines['right'].get_linewidth(),
+                ax.spines['left'].get_linewidth()
+            )
         )
         if changed:
-            ax.spines['bottom'].set_linewidth(linewidth_x)
-            ax.spines['top'].set_linewidth(linewidth_x)
-            ax.spines['left'].set_linewidth(linewidth_y)
-            ax.spines['right'].set_linewidth(linewidth_y)
+            ax.spines['bottom'].set_linewidth(lw_b)
+            ax.spines['top'].set_linewidth(lw_t)
+            ax.spines['left'].set_linewidth(lw_l)
+            ax.spines['right'].set_linewidth(lw_r)
 
         changed, axis_color_x = imgui.color_edit3("X Axis Color", axis_color_x[:3])
         if changed:
@@ -337,8 +352,6 @@ class MPLView():
             imgui.end_child()
 
     def _axes_settings_ui(self, ax):
-        imgui.text('Axes settings')
-
         changed, title = imgui.input_text("Title", ax.get_title(), 256)
         if changed:
             ax.set_title(title)
@@ -347,15 +360,11 @@ class MPLView():
         if changed:
             ax.set_facecolor(bg_color)
 
-        if imgui.collapsing_header('Grid'):
-            imgui.begin_child('GridSettings')
-            self._axis_grid_settings(ax)
-            imgui.end_child()
+        imgui.separator_text('Grid')
+        self._axis_grid_settings(ax)
 
-        if imgui.collapsing_header('Axis'):
-            imgui.begin_child('Axis')
-            self._axis_settings(ax)
-            imgui.end_child()
+        imgui.separator_text('Axis')
+        self._axis_settings(ax)
 
     def update_ui(self, state, gui, dt):
         if imgui.begin_main_menu_bar():
