@@ -213,6 +213,19 @@ class MPLView():
         if changed:
             ax.yaxis.grid(grid_major_y)
 
+        changed, grid_minor_x = imgui.checkbox(
+            "Show Minor X Grid", ax.xaxis._minor_tick_kw.get('gridOn', False)
+        )
+        if changed:
+            ax.xaxis.grid(grid_minor_x, which='minor')
+
+        imgui.same_line()
+        changed, grid_minor_y = imgui.checkbox(
+            "Show Minor Y Grid", ax.yaxis._minor_tick_kw.get('gridOn', False)
+        )
+        if changed:
+            ax.yaxis.grid(grid_minor_y, which='minor')
+
         linetypes = ['-', '--', '-.', ':']
 
         gridlines_x = ax.get_xgridlines()
