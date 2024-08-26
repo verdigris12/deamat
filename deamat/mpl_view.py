@@ -369,6 +369,8 @@ class MPLView():
         changed, y_log_scale = imgui.checkbox("Logarithmic Y Scale", ax.get_yscale() == 'log')
         if changed:
             ax.set_yscale('log' if y_log_scale else 'linear')
+
+        imgui.separator_text('Grid')
         self._axis_grid_settings(ax)
 
         imgui.separator_text('Axis')
