@@ -207,24 +207,24 @@ class MPLView():
         minor_y_gridlines = ax.yaxis.get_minorticklines()
 
         major_x_color = mcolors.to_rgba(major_x_gridlines[0].get_color())
-        minor_x_color = mcolors.to_rgba(minor_x_gridlines[0].get_color()) if minor_x_gridlines else (0, 0, 0, 1)
+        minor_x_color = mcolors.to_rgba(minor_x_gridlines[0].get_color())
         major_y_color = mcolors.to_rgba(major_y_gridlines[0].get_color())
-        minor_y_color = mcolors.to_rgba(minor_y_gridlines[0].get_color()) if minor_y_gridlines else (0, 0, 0, 1)
+        minor_y_color = mcolors.to_rgba(minor_y_gridlines[0].get_color())
 
         major_x_alpha = major_x_gridlines[0].get_alpha()
-        minor_x_alpha = minor_x_gridlines[0].get_alpha() if minor_x_gridlines else 1.0
+        minor_x_alpha = minor_x_gridlines[0].get_alpha()
         major_y_alpha = major_y_gridlines[0].get_alpha()
-        minor_y_alpha = minor_y_gridlines[0].get_alpha() if minor_y_gridlines else 1.0
+        minor_y_alpha = minor_y_gridlines[0].get_alpha()
 
         major_x_linetype = major_x_gridlines[0].get_linestyle()
-        minor_x_linetype = minor_x_gridlines[0].get_linestyle() if minor_x_gridlines else '-'
+        minor_x_linetype = minor_x_gridlines[0].get_linestyle()
         major_y_linetype = major_y_gridlines[0].get_linestyle()
-        minor_y_linetype = minor_y_gridlines[0].get_linestyle() if minor_y_gridlines else '-'
+        minor_y_linetype = minor_y_gridlines[0].get_linestyle()
 
         major_x_width = major_x_gridlines[0].get_linewidth()
-        minor_x_width = minor_x_gridlines[0].get_linewidth() if minor_x_gridlines else 1.0
+        minor_x_width = minor_x_gridlines[0].get_linewidth()
         major_y_width = major_y_gridlines[0].get_linewidth()
-        minor_y_width = minor_y_gridlines[0].get_linewidth() if minor_y_gridlines else 1.0
+        minor_y_width = minor_y_gridlines[0].get_linewidth()
 
         # Major X Grid
         changed, grid_major_x = imgui.checkbox(
