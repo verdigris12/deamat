@@ -233,40 +233,12 @@ class MPLView():
         if changed:
             ax.grid(grid_major_x, which='major', axis='x')
 
-        imgui.same_line()
-        changed, grid_minor_x = imgui.checkbox(
-            "Minor X Grid", ax.xaxis._minor_tick_kw.get('gridOn', False)
-        )
-        if changed:
-            ax.grid(grid_minor_x, which='minor', axis='x')
-
-        changed, grid_major_y = imgui.checkbox(
-            "Y Grid", ax.yaxis._major_tick_kw.get('gridOn', False)
-        )
-        if changed:
-            ax.grid(grid_major_y, which='major', axis='y')
-
-        imgui.same_line()
-        changed, grid_minor_y = imgui.checkbox(
-            "Minor Y Grid", ax.yaxis._minor_tick_kw.get('gridOn', False)
-        )
-        if changed:
-            ax.grid(grid_minor_y, which='minor', axis='y')
-
         # Grid Alpha
-        changed, (major_x_alpha, major_y_alpha) = imgui.slider_float2(
-            "Major Grid Alpha (X, Y)", (major_x_alpha, major_y_alpha), 0.0, 1.0
+        changed, major_x_alpha = imgui.slider_float(
+            "Major X Grid Alpha", major_x_alpha, 0.0, 1.0
         )
         if changed:
             ax.grid(True, which='major', axis='x', alpha=major_x_alpha)
-            ax.grid(True, which='major', axis='y', alpha=major_y_alpha)
-
-        changed, (minor_x_alpha, minor_y_alpha) = imgui.slider_float2(
-            "Minor Grid Alpha (X, Y)", (minor_x_alpha, minor_y_alpha), 0.0, 1.0
-        )
-        if changed:
-            ax.grid(True, which='minor', axis='x', alpha=minor_x_alpha)
-            ax.grid(True, which='minor', axis='y', alpha=minor_y_alpha)
 
         # Grid Linetype
         linetypes = ['-', '--', '-.', ':']
@@ -276,55 +248,17 @@ class MPLView():
         if changed:
             ax.grid(True, which='major', axis='x', linestyle=linetypes[major_x_linetype])
 
-        changed, minor_x_linetype = imgui.combo(
-            "Minor X Grid Linetype", linetypes.index(minor_x_linetype), linetypes
-        )
-        if changed:
-            ax.grid(True, which='minor', axis='x', linestyle=linetypes[minor_x_linetype])
-
-        changed, major_y_linetype = imgui.combo(
-            "Major Y Grid Linetype", linetypes.index(major_y_linetype), linetypes
-        )
-        if changed:
-            ax.grid(True, which='major', axis='y', linestyle=linetypes[major_y_linetype])
-
-        changed, minor_y_linetype = imgui.combo(
-            "Minor Y Grid Linetype", linetypes.index(minor_y_linetype), linetypes
-        )
-        if changed:
-            ax.grid(True, which='minor', axis='y', linestyle=linetypes[minor_y_linetype])
-
         # Grid Color
         changed, major_x_color = imgui.color_edit3("Major X Grid Color", major_x_color[:3])
         if changed:
             ax.grid(True, which='major', axis='x', color=major_x_color)
 
-        changed, minor_x_color = imgui.color_edit3("Minor X Grid Color", minor_x_color[:3])
-        if changed:
-            ax.grid(True, which='minor', axis='x', color=minor_x_color)
-
-        changed, major_y_color = imgui.color_edit3("Major Y Grid Color", major_y_color[:3])
-        if changed:
-            ax.grid(True, which='major', axis='y', color=major_y_color)
-
-        changed, minor_y_color = imgui.color_edit3("Minor Y Grid Color", minor_y_color[:3])
-        if changed:
-            ax.grid(True, which='minor', axis='y', color=minor_y_color)
-
         # Grid Linewidth
-        changed, (major_x_width, major_y_width) = imgui.input_float2(
-            "Major Grid Linewidth (X, Y)", (major_x_width, major_y_width)
+        changed, major_x_width = imgui.input_float(
+            "Major X Grid Linewidth", major_x_width
         )
         if changed:
             ax.grid(True, which='major', axis='x', linewidth=major_x_width)
-            ax.grid(True, which='major', axis='y', linewidth=major_y_width)
-
-        changed, (minor_x_width, minor_y_width) = imgui.input_float2(
-            "Minor Grid Linewidth (X, Y)", (minor_x_width, minor_y_width)
-        )
-        if changed:
-            ax.grid(True, which='minor', axis='x', linewidth=minor_x_width)
-            ax.grid(True, which='minor', axis='y', linewidth=minor_y_width)
 
     def _font_button_ui(self, mpl_text, id=None):
         if id is None:
