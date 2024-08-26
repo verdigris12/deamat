@@ -257,30 +257,35 @@ class MPLView():
             for line in ax.get_ygridlines():
                 line.set_color(grid_color_y)
 
+    def _font_button_ui(self, mpl_text, id=None):
+        if id is None:
+            id = 'font_settings_button'
+        modal_id = f'{id}_modal'
+        imgui.push_id(id)
+        if imgui.button("T"):
+            imgui.open_popup(modal_id)
+
+        if imgui.begin_popup_modal(modal_id)[0]:
+            self._font_ui(mpl_text)
+            if imgui.button("Close"):
+                imgui.close_current_popup()
+            imgui.end_popup()
+        imgui.pop_id()
+
     def _axis_settings(self, ax):
         imgui.text('Axis Labels')
+
+        self._font_button_ui(ax.yaxis.get_label(), id="xaxis_font")
+        imgui.same_line()
         changed, xlabel = imgui.input_text("X Label", ax.get_xlabel(), 256)
         if changed:
             ax.set_xlabel(xlabel)
 
+        self._font_button_ui(ax.yaxis.get_label(), id="yaxis_font")
+        imgui.same_line()
         changed, ylabel = imgui.input_text("Y Label", ax.get_ylabel(), 256)
         if changed:
             ax.set_ylabel(ylabel)
-
-        if imgui.button("🖉 Edit X Label Font"):
-            imgui.open_popup("X Label Font Settings")
-
-        if imgui.begin_popup_modal("X Label Font Settings", flags=imgui.WINDOW_ALWAYS_AUTO_RESIZE)[0]:
-            imgui.set_window_size("X Label Font Settings", self.state.sidebar_width, 0)
-            self._font_ui(ax.xaxis.get_label())
-            if imgui.button("Close"):
-                imgui.close_current_popup()
-            imgui.end_popup()
-
-        if imgui.collapsing_header('Font settings for Y label'):
-            imgui.begin_child('ax_ylabel')
-            self._font_ui(ax.yaxis.get_label())
-            imgui.end_child()
 
         changed, top_spine_on = imgui.checkbox("Top Spine On", ax.spines['top'].get_visible())
         if changed:
