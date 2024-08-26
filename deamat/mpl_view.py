@@ -232,26 +232,28 @@ class MPLView():
         gridlines_y = ax.get_ygridlines()
         alpha_x = gridlines_x[0].get_alpha()
         alpha_y = gridlines_y[0].get_alpha()
-        changed, (alpha_x, alpha_y) = imgui.slider_float2("Grid Alpha (X, Y)", (alpha_x, alpha_y), 0.0, 1.0)
+        changed, (alpha_x, alpha_y) = imgui.slider_float2(
+            "Grid Alpha (X, Y)", (alpha_x, alpha_y), 0.0, 1.0
+        )
         if changed:
-            for line in ax.xaxis.get_gridlines():
-                if line.get_visible():
-                    line.set_alpha(alpha_x)
-            for line in ax.yaxis.get_gridlines():
-                if line.get_visible():
-                    line.set_alpha(alpha_y)
+            for line in ax.get_xgridlines():
+                line.set_alpha(alpha_x)
+            for line in ax.get_ygridlines():
+                line.set_alpha(alpha_y)
 
-        changed, linetype_x = imgui.combo("X Grid Linetype", linetypes.index(gridlines_x[0].get_linestyle()), linetypes)
+        changed, linetype_x = imgui.combo(
+            "X Grid Linetype", linetypes.index(gridlines_x[0].get_linestyle()), linetypes
+        )
         if changed:
-            for line in ax.xaxis.get_gridlines():
-                if line.get_visible():
-                    line.set_linestyle(linetypes[linetype_x])
+            for line in ax.get_xgridlines():
+                line.set_linestyle(linetypes[linetype_x])
 
-        changed, linetype_y = imgui.combo("Y Grid Linetype", linetypes.index(gridlines_y[0].get_linestyle()), linetypes)
+        changed, linetype_y = imgui.combo(
+            "Y Grid Linetype", linetypes.index(gridlines_y[0].get_linestyle()), linetypes
+        )
         if changed:
-            for line in ax.yaxis.get_gridlines():
-                if line.get_visible():
-                    line.set_linestyle(linetypes[linetype_y])
+            for line in ax.get_ygridlines():
+                line.set_linestyle(linetypes[linetype_y])
 
         grid_color_x = mcolors.to_rgba(gridlines_x[0].get_color())
         grid_color_y = mcolors.to_rgba(gridlines_y[0].get_color())
