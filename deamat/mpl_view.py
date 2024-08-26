@@ -360,6 +360,8 @@ class MPLView():
         if changed:
             ax.set_facecolor(bg_color)
 
+        imgui.separator_text('Scale')
+
         imgui.separator_text('Grid')
         self._axis_grid_settings(ax)
 
