@@ -199,66 +199,90 @@ class MPLView():
         if changed:
             fig.suptitle(sptext)
 
+    def _axis_gridline_settings(self, ax, gridlines, which, axis):
+        id = f'ax_grid_{which}_{axis}'
+
+        if len(gridlines) == 0:
+            visible = False
+            changed, visible = imgui.checkbox(
+                f'Visible##nan_{id}', visible
+            )
+            if changed:
+                ax.grid(visible, which=which, axis=axis)
+
+            if not visible:
+                return
+
+        else:
+            linetype_list = ['-', '--', '-.', ':']
+
+            color = mcolors.to_rgba(gridlines[0].get_color())
+            alpha = gridlines[0].get_alpha() or 1
+            linetype = gridlines[0].get_linestyle()
+            width = gridlines[0].get_linewidth()
+            visible = gridlines[0].get_visible()
+
+            if color is None:
+                color = (1, 1, 1)
+            if linetype is None:
+                linetype = '-'
+            if width is None:
+                width = 0.1
+
+            try:
+                lt_id = linetype_list.index(linetype)
+            except:
+                lt_id = 0
+
+            changed, visible = imgui.checkbox(
+                f'Visible##{id}', visible
+            )
+            if changed:
+                ax.grid(visible, which=which, axis=axis)
+
+            if not visible:
+                return
+
+            changed, alpha = imgui.slider_float(
+                f'Alpha##{id}', alpha, 0.0, 1.0
+            )
+            if changed:
+                ax.grid(True, which=which, axis=axis, alpha=alpha)
+
+            changed, lt_id = imgui.combo(
+                f'Linetype##{id}', lt_id, linetype_list
+            )
+            if changed:
+                ax.grid(True, which=which, axis=axis, linestyle=linetype_list[lt_id])
+
+            changed, color = imgui.color_edit3(f'Color##{id}', color[:3])
+            if changed:
+                ax.grid(True, which=which, axis=axis, color=color)
+
+            changed, width = imgui.input_float(
+                f'Linewidth##{id}', width
+            )
+            if changed:
+                ax.grid(True, which=which, axis=axis, linewidth=width)
+
     def _axis_grid_settings(self, ax):
-        # Read current grid settings
-        major_x_gridlines = ax.xaxis.get_gridlines()
-        minor_x_gridlines = ax.xaxis.get_minorticklines()
-        major_y_gridlines = ax.yaxis.get_gridlines()
-        minor_y_gridlines = ax.yaxis.get_minorticklines()
+        if imgui.begin_tab_bar("GridlineTabs"):
+            if imgui.begin_tab_item("Major X")[0]:
+                self._axis_gridline_settings(ax, ax.xaxis.get_gridlines(), 'major', 'x')
+                imgui.end_tab_item()
+            if imgui.begin_tab_item("Minor X")[0]:
+                self._axis_gridline_settings(ax, ax.xaxis.get_minorticklines(), 'minor', 'x')
+                imgui.end_tab_item()
+            if imgui.begin_tab_item("Major Y")[0]:
+                self._axis_gridline_settings(ax, ax.yaxis.get_gridlines(), 'major', 'y')
+                imgui.end_tab_item()
+            if imgui.begin_tab_item("Minor Y")[0]:
+                self._axis_gridline_settings(ax, ax.yaxis.get_minorticklines(), 'minor', 'y')
+                imgui.end_tab_item()
+            imgui.end_tab_bar()
 
-        major_x_color = mcolors.to_rgba(major_x_gridlines[0].get_color())
-        minor_x_color = mcolors.to_rgba(minor_x_gridlines[0].get_color())
-        major_y_color = mcolors.to_rgba(major_y_gridlines[0].get_color())
-        minor_y_color = mcolors.to_rgba(minor_y_gridlines[0].get_color())
-
-        major_x_alpha = major_x_gridlines[0].get_alpha()
-        minor_x_alpha = minor_x_gridlines[0].get_alpha()
-        major_y_alpha = major_y_gridlines[0].get_alpha()
-        minor_y_alpha = minor_y_gridlines[0].get_alpha()
-
-        major_x_linetype = major_x_gridlines[0].get_linestyle()
-        minor_x_linetype = minor_x_gridlines[0].get_linestyle()
-        major_y_linetype = major_y_gridlines[0].get_linestyle()
-        minor_y_linetype = minor_y_gridlines[0].get_linestyle()
-
-        major_x_width = major_x_gridlines[0].get_linewidth()
-        minor_x_width = minor_x_gridlines[0].get_linewidth()
-        major_y_width = major_y_gridlines[0].get_linewidth()
-        minor_y_width = minor_y_gridlines[0].get_linewidth()
-
-        # Major X Grid
-        changed, grid_major_x = imgui.checkbox(
-            "X Grid", ax.xaxis._major_tick_kw.get('gridOn', False)
-        )
-        if changed:
-            ax.grid(grid_major_x, which='major', axis='x')
-
-        # Grid Alpha
-        changed, major_x_alpha = imgui.slider_float(
-            "Major X Grid Alpha", major_x_alpha, 0.0, 1.0
-        )
-        if changed:
-            ax.grid(True, which='major', axis='x', alpha=major_x_alpha)
-
-        # Grid Linetype
-        linetypes = ['-', '--', '-.', ':']
-        changed, major_x_linetype = imgui.combo(
-            "Major X Grid Linetype", linetypes.index(major_x_linetype), linetypes
-        )
-        if changed:
-            ax.grid(True, which='major', axis='x', linestyle=linetypes[major_x_linetype])
-
-        # Grid Color
-        changed, major_x_color = imgui.color_edit3("Major X Grid Color", major_x_color[:3])
-        if changed:
-            ax.grid(True, which='major', axis='x', color=major_x_color)
-
-        # Grid Linewidth
-        changed, major_x_width = imgui.input_float(
-            "Major X Grid Linewidth", major_x_width
-        )
-        if changed:
-            ax.grid(True, which='major', axis='x', linewidth=major_x_width)
+        if imgui.button('Start IPython console'):
+            from IPython import embed; embed()
 
     def _font_button_ui(self, mpl_text, id=None):
         if id is None:
@@ -276,6 +300,18 @@ class MPLView():
         imgui.pop_id()
 
     def _axis_settings(self, ax):
+        self._font_button_ui(ax.yaxis.get_label(), id="xaxis_font")
+        imgui.same_line()
+        changed, xlabel = imgui.input_text("X Label", ax.get_xlabel(), 256)
+        if changed:
+            ax.set_xlabel(xlabel)
+
+        self._font_button_ui(ax.yaxis.get_label(), id="yaxis_font")
+        imgui.same_line()
+        changed, ylabel = imgui.input_text("Y Label", ax.get_ylabel(), 256)
+        if changed:
+            ax.set_ylabel(ylabel)
+
         changed, axis_on = imgui.checkbox("Axis On", ax.axison)
         if changed:
             ax.set_axis_on() if axis_on else ax.set_axis_off()
@@ -303,20 +339,6 @@ class MPLView():
         changed, left_spine_on = imgui.checkbox("Left Spine", ax.spines['left'].get_visible())
         if changed:
             ax.spines['left'].set_visible(left_spine_on)
-
-        imgui.text('Axis Labels')
-
-        self._font_button_ui(ax.yaxis.get_label(), id="xaxis_font")
-        imgui.same_line()
-        changed, xlabel = imgui.input_text("X Label", ax.get_xlabel(), 256)
-        if changed:
-            ax.set_xlabel(xlabel)
-
-        self._font_button_ui(ax.yaxis.get_label(), id="yaxis_font")
-        imgui.same_line()
-        changed, ylabel = imgui.input_text("Y Label", ax.get_ylabel(), 256)
-        if changed:
-            ax.set_ylabel(ylabel)
 
         axis_color_x = ax.spines['bottom'].get_edgecolor()
         axis_color_y = ax.spines['left'].get_edgecolor()
@@ -375,11 +397,11 @@ class MPLView():
         if changed:
             ax.set_yscale('log' if y_log_scale else 'linear')
 
-        imgui.separator_text('Grid')
-        self._axis_grid_settings(ax)
-
         imgui.separator_text('Axis')
         self._axis_settings(ax)
+
+        imgui.separator_text('Grid')
+        self._axis_grid_settings(ax)
 
     def update_ui(self, state, gui, dt):
         if imgui.begin_main_menu_bar():
