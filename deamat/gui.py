@@ -1,12 +1,12 @@
+from imgui_bundle import imgui
+from imgui_bundle.python_backends import pyglet_backend
 import pyglet
-import imgui
-# import imgui_datascience as imgui_ds
-# from imgui_bundle import portable_file_dialogs as pfd
+from pyglet import gl
+
+from matplotlib import pyplot as plt
+
 from concurrent.futures import ProcessPoolExecutor
 from multiprocessing import Lock
-from pyglet import gl
-from imgui.integrations.pyglet import create_renderer
-from matplotlib import pyplot as plt
 
 
 class GUI():
@@ -18,8 +18,8 @@ class GUI():
             resizable=True
         )
         gl.glClearColor(0, 0, 0, 1)
-        imgui.create_context()
-        impl = create_renderer(window)
+        self.ctx = imgui.create_context()
+        impl = pyglet_backend.create_renderer(window)
 
         self.window = window
         self.main_window_fullscreen = False
@@ -57,23 +57,21 @@ class GUI():
 
     def __create_main_window(self):
         mv = imgui.get_main_viewport()
-        imgui.set_next_window_position(mv.pos.x, mv.pos.y)
-        imgui.set_next_window_size(mv.size.x, mv.size.y)
-        imgui.begin(
-            "Main",
-            closable=False,
-            flags=imgui.WINDOW_NO_TITLE_BAR
-            | imgui.WINDOW_MENU_BAR
-            | imgui.WINDOW_NO_DECORATION
-            | imgui.WINDOW_NO_RESIZE
-            | imgui.WINDOW_NO_MOVE
-            | imgui.WINDOW_NO_COLLAPSE
-            | imgui.WINDOW_NO_BRING_TO_FRONT_ON_FOCUS
-        )
+        imgui.set_next_window_pos((mv.pos.x, mv.pos.y))
+        imgui.set_next_window_size((mv.size.x, mv.size.y))
+        flags = imgui.WindowFlags_.menu_bar \
+            | imgui.WindowFlags_.no_decoration \
+            | imgui.WindowFlags_.no_resize \
+            | imgui.WindowFlags_.no_move \
+            | imgui.WindowFlags_.no_collapse \
+            | imgui.WindowFlags_.no_bring_to_front_on_focus
+
+        imgui.begin("Main", flags=flags)
 
     def __update_ui(self, dt):
         self.impl.process_inputs()
         imgui.new_frame()
+        self
         self.state.update_window(self.window)
         if self.main_window_fullscreen:
             self.__create_main_window()

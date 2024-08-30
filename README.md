@@ -1,6 +1,8 @@
 # Deamat: a Python GUI boilerplate
 -----------------------------
 
+***WORK IN PROGRESS***
+
 * Based on `pyimgui` + `pygame`
 * Matplotlib integration thanks to `imgui_datascience`
 * Integrated multiprocessing job scheduler (yes, I need it)
