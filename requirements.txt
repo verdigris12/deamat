@@ -1,6 +1,5 @@
 imgui-bundle
 opencv-python
-pyGLM
 setuptools
 matplotlib
 pyglet
