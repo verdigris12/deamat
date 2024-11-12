@@ -12,9 +12,6 @@ class GUIState():
         self.input_path = ""
         self.config = None
         self.fig_width = 100
-        self.data = None
-        self.residuals = {}
-        self.results = {}
         self.figures = {}
         self.plt_style = 'dark_background'
         self.show_test_window = False
