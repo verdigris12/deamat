@@ -1,0 +1,5 @@
+.git
+deamat.egg-info
+.github
+.venv
+./deamat/__pycache__

@@ -1,22 +1,74 @@
+## pyproject.toml
+## Build configuration for the Deamat package.  This file declares the
+## package metadata, build backend and runtime requirements.  By using
+## [project] metadata and the setuptools backend we can build a proper
+## Python distribution with minimal version constraints on dependencies.
+
 [build-system]
-requires = ["setuptools>=42", "wheel"]
+requires = [
+    "setuptools>=42",
+    "wheel>=0.37"
+]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "deamat"
 version = "0.1.0"
 description = "A Python GUI boilerplate"
+readme = "README.md"
+requires-python = ">=3.11"
 authors = [
     { name = "verdigris", email = "verdigris1903@proton.me" }
 ]
 dependencies = [
-
-  "imgui-bundle",
-  "opencv-python",
-  "setuptools",
-  "matplotlib",
-  "pyglet"
+    "annotated-types>=0.7.0",
+    "contourpy>=1.2.1",
+    "cycler>=0.12.1",
+    "Cython>=0.29.37",
+    "fonttools>=4.53.1",
+    "glfw>=2.7.0",
+    "imgui>=2.0.0",
+    "imgui-bundle>=1.5.2",
+    "imgui-datascience>=0.3.2",
+    "kiwisolver>=1.4.5",
+    "matplotlib>=3.9.2",
+    "munch>=4.0.0",
+    "numpy>=2.0.1",
+    "opencv-python>=4.10.0.84",
+    "packaging>=24.1",
+    "pillow>=10.4.0",
+    "pydantic>=2.8.2",
+    "pydantic_core>=2.20.1",
+    "pygame>=2.6.0",
+    "pyglet>=2.0",
+    "PyOpenGL>=3.1.7",
+    "pyparsing>=3.1.2",
+    "PySDL2>=0.9.16",
+    "python-dateutil>=2.9.0.post0",
+    "setuptools>=72.2.0",
+    "six>=1.16.0",
+    "typing_extensions>=4.12.2",
+    "xxhash>=3.4.1"
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Topic :: Multimedia :: Graphics"
 ]
 
+[project.urls]
+"Homepage" = "https://github.com/verdigris12/deamat"
+"Source" = "https://github.com/verdigris12/deamat"
+"Bug Tracker" = "https://github.com/verdigris12/deamat/issues"
+
 [project.scripts]
-mpl-view = "x.mpl_view:main"
+deamat-demo = "deamat.__main__:main"
+
+[tool.setuptools.packages]
+find = {}
