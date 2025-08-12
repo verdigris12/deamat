@@ -1,8 +1,17 @@
 #!/usr/bin/env python3
 
+"""
+Standalone viewer for matplotlib figures.  The :class:`MPLView` class opens a
+full‑screen window with a sidebar that exposes various figure and axes settings.
+
+It is used internally by the widgets module to allow users to inspect and
+modify figures in a separate window while the main GUI remains responsive.
+"""
+
 import pickle
 from matplotlib import font_manager
 import matplotlib.colors as mcolors
+from matplotlib.backends.backend_agg import FigureCanvasAgg as FigureCanvasAgg
 
 from imgui_bundle import portable_file_dialogs as pfd
 from imgui_bundle import imgui, imgui_fig
@@ -13,26 +22,34 @@ from .gui import GUI
 
 class MPLVState(GUIState):
     def __init__(self, fig):
-        GUIState.__init__(self)
+        super().__init__()
         self.fig = fig
-        self.fig_x = None
-        self.fig_y = None
+        self._ensure_agg(fig)
+        self.fig_x: float | None = None
+        self.fig_y: float | None = None
         self.sidebar_width = 450
         self.refresh_required = True
 
-    def load_figure(self, filename):
+    def _ensure_agg(self, fig):
+        if fig is not None and not hasattr(getattr(fig, "canvas", None), "buffer_rgba"):
+            FigureCanvasAgg(fig)
+
+    def load_figure(self, filename: str) -> None:
         with open(filename, 'rb') as file:
             fig = pickle.load(file)
         self.fig = fig
+        self._ensure_agg(fig)
 
 
-class MPLView():
-    def __init__(self, fig):
+class MPLView:
+    def __init__(self, fig) -> None:
         self.state = MPLVState(fig)
         self.gui = GUI(self.state)
+        # hook our update method into the GUI
         self.gui.update = lambda state, gui, dt: self.update_ui(state, gui, dt)
         self.gui.main_window_fullscreen = True
 
+        # register the figure so widgets can draw it
         self.gui.state.add_figure(
             'Fig',
             lambda state: self.state.fig,
@@ -41,9 +58,10 @@ class MPLView():
             title='Figure 1'
         )
 
-    def _figure_view_ui(self):
+
+    def _figure_view_ui(self) -> None:
         state = self.state
-        figure = state.figure
+        figure = state.fig
 
         if imgui.is_mouse_clicked(imgui.MOUSE_BUTTON_LEFT):
             mouse_x, mouse_y = imgui.get_mouse_pos()
@@ -53,8 +71,8 @@ class MPLView():
                     (mouse_x, mouse_y)
                 )
 
-    def _sidebar_ui(self, state):
-
+    def _sidebar_ui(self, state: MPLVState) -> None:
+        # apply button placeholder – refresh the figure when pressed
         if imgui.button("Apply Changes"):
             state.refresh_required = True
 
@@ -68,6 +86,9 @@ class MPLView():
                     imgui.end_tab_item()
 
             imgui.end_tab_bar()
+
+    # -------------------------------------------------------------------------
+    # Font editing helpers
 
     def _font_ui(self, text_object):
         if isinstance(text_object, list):
@@ -84,9 +105,8 @@ class MPLView():
         mpltext_x = mpl_text.get_position()[0]
         mpltext_y = mpl_text.get_position()[1]
 
-        def update_mpltext():
-
-            def update(mtext):
+        def update_mpltext() -> None:
+            def update(mtext) -> None:
                 mtext.set(
                     fontsize=mpltext_fontsize, fontweight=mpltext_fontweight,
                     fontname=mpltext_font,
@@ -118,8 +138,7 @@ class MPLView():
 
         font_weights = ['ultralight', 'light', 'normal', 'regular', 'book', 'medium',
                         'roman', 'semibold', 'demibold', 'demi', 'bold', 'heavy',
-                        'extra bold', 'black'
-                        ]
+                        'extra bold', 'black']
         changed, fw_selection = imgui.combo(
             "Font Weight", font_weights.index(mpltext_fontweight), font_weights
         )
@@ -157,24 +176,22 @@ class MPLView():
         imgui.text('Figure settings')
 
         changed, fig_width = imgui.input_float(
-            "Width, in", fig.get_figwidth(), 0.1, 1.0,
-            flags=imgui.InputTextFlags_.enter_returns_true
+            "Width, in", fig.get_figwidth(), 0.1, 1.0
         )
         if changed and fig_width > 0.5:
             fig.set_figwidth(fig_width)
             self.state.refresh_required = True
 
         changed, fig_height = imgui.input_float(
-            "Height, in", fig.get_figheight(), 0.1, 1.0,
-            flags=imgui.InputTextFlags_.enter_returns_true
+            "Height, in", fig.get_figheight(), 0.1, 1.0
+
         )
         if changed and fig_height > 0.5:
             fig.set_figheight(fig_height)
             self.state.refresh_required = True
 
         changed, fig_dpi = imgui.input_float(
-            "DPI", fig.get_dpi(), 1.0, 10.0,
-            flags=imgui.InputTextFlags_.enter_returns_true
+            "DPI", fig.get_dpi(), 1.0, 10.0
 
         )
         if changed and fig_dpi > 10:
@@ -199,7 +216,7 @@ class MPLView():
         if changed:
             fig.suptitle(sptext)
 
-    def _axis_gridline_settings(self, ax, gridlines, which, axis):
+    def _axis_gridline_settings(self, ax, gridlines, which: str, axis: str) -> None:
         id = f'ax_grid_{which}_{axis}'
 
         if len(gridlines) == 0:
@@ -231,7 +248,7 @@ class MPLView():
 
             try:
                 lt_id = linetype_list.index(linetype)
-            except:
+            except ValueError:
                 lt_id = 0
 
             changed, visible = imgui.checkbox(
@@ -265,7 +282,7 @@ class MPLView():
             if changed:
                 ax.grid(True, which=which, axis=axis, linewidth=width)
 
-    def _axis_grid_settings(self, ax):
+    def _axis_grid_settings(self, ax) -> None:
         if imgui.begin_tab_bar("GridlineTabs"):
             if imgui.begin_tab_item("Major X")[0]:
                 self._axis_gridline_settings(ax, ax.xaxis.get_gridlines(), 'major', 'x')
@@ -282,9 +299,10 @@ class MPLView():
             imgui.end_tab_bar()
 
         if imgui.button('Start IPython console'):
-            from IPython import embed; embed()
+            from IPython import embed
+            embed()
 
-    def _font_button_ui(self, mpl_text, id=None):
+    def _font_button_ui(self, mpl_text, id: str | None = None) -> None:
         if id is None:
             id = 'font_settings_button'
         modal_id = f'{id}_modal'
@@ -299,7 +317,7 @@ class MPLView():
             imgui.end_popup()
         imgui.pop_id()
 
-    def _axis_settings(self, ax):
+    def _axis_settings(self, ax) -> None:
         self._font_button_ui(ax.yaxis.get_label(), id="xaxis_font")
         imgui.same_line()
         changed, xlabel = imgui.input_text("X Label", ax.get_xlabel(), 256)
@@ -378,7 +396,7 @@ class MPLView():
             self._font_ui(ax.xaxis.get_ticklabels())
             imgui.end_child()
 
-    def _axes_settings_ui(self, ax):
+    def _axes_settings_ui(self, ax) -> None:
         changed, title = imgui.input_text("Title", ax.get_title(), 256)
         if changed:
             ax.set_title(title)
@@ -403,7 +421,11 @@ class MPLView():
         imgui.separator_text('Grid')
         self._axis_grid_settings(ax)
 
-    def update_ui(self, state, gui, dt):
+    # -------------------------------------------------------------------------
+    # Main update
+
+    def update_ui(self, state: MPLVState, gui: GUI, dt: float) -> None:
+        # main menu bar
         if imgui.begin_main_menu_bar():
             if imgui.begin_menu("File", True):
                 clicked_save_pickle, _ = imgui.menu_item("Save as pickle", "Ctrl+S", False, True)
@@ -427,7 +449,7 @@ class MPLView():
         imgui.set_column_width(0, available_width - state.sidebar_width)
         imgui.set_column_width(1, state.sidebar_width)
 
-        # Center the figure horizontally and vertically
+        # Center the figure horizontally and vertically within the left column
         column_width = imgui.get_column_width()
         figure_width = state.fig.get_figwidth() * state.fig.get_dpi()
         figure_height = state.fig.get_figheight() * state.fig.get_dpi()
@@ -447,5 +469,6 @@ class MPLView():
         imgui.next_column()
         self._sidebar_ui(state)
 
-    def run(self):
+    # -------------------------------------------------------------------------
+    def run(self) -> None:
         self.gui.run()

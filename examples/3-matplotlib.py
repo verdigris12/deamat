@@ -1,27 +1,35 @@
 #!/usr/bin/env python3
 
+"""
+Example: display a histogram generated with matplotlib and update it when the
+state changes.  This example demonstrates how to integrate matplotlib figures
+into an imgui interface using deamat.
+"""
+
 from matplotlib import pyplot as plt
 
 from deamat.gui import GUI as dGUI
 from deamat.guistate import GUIState
 from deamat.widgets import im_plot_figure
-import imgui
+from deamat import imgui
 import numpy as np
 
 
 class State(GUIState):
-    def __init__(self):
-        GUIState.__init__(self)
+    def __init__(self) -> None:
+        super().__init__()
         self.value = 0
+        # generate an initial series of 1000 normally distributed points
         self.series = np.random.standard_normal(1000)
 
-    def reroll(self):
+    def reroll(self) -> None:
+        # regenerate the series with mean equal to the current value
         self.series = np.random.normal(loc=self.value, scale=1.0, size=1000)
 
 
-def update_ui(state, gui, dt):
+def update_ui(state: State, gui: dGUI, dt: float) -> None:
     if imgui.button('Increase value'):
-        state.value = state.value + 1
+        state.value += 1
         state.reroll()
         state.invalidate_figure('hist')
     imgui.text(f'{state.value}')
@@ -39,7 +47,7 @@ def imfig_hist(state: State) -> plt.Figure:
     return fig
 
 
-def main():
+def main() -> None:
     gui = dGUI(State())
     gui.update = update_ui
     gui.state.add_figure(

@@ -1,5 +1,0 @@
-imgui-bundle
-opencv-python
-setuptools
-matplotlib
-pyglet
