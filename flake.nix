@@ -41,7 +41,6 @@
           xorg.libXext 
           xorg.libXinerama 
           xorg.libXxf86vm 
-          xorg.libXrandr
         ];
       in {
         devShells.default = pkgs.mkShell {
