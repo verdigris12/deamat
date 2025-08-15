@@ -11,7 +11,7 @@ from imgui_bundle import portable_file_dialogs as pfd
 from imgui_bundle import imgui, imgui_fig
 import pickle
 
-from .mpl_view import MPLView
+from deamat.mpl_view import MPLView
 
 
 def open_figure_in_pyplot(pickled_figure: bytes) -> None:

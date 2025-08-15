@@ -10,7 +10,7 @@ from matplotlib import pyplot as plt
 
 from deamat.gui import GUI as dGUI
 from deamat.guistate import GUIState
-from deamat.widgets import im_plot_figure
+from deamat import widgets as dw
 from deamat import imgui
 import numpy as np
 
@@ -34,7 +34,7 @@ def update_ui(state: State, gui: dGUI, dt: float) -> None:
         state.invalidate_figure('hist')
     imgui.text(f'{state.value}')
     imgui.begin("Figure")
-    im_plot_figure(state, 'hist', autosize=True)
+    dw.figure(state, 'hist', autosize=True)
     imgui.end()
 
 

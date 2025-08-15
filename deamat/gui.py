@@ -6,8 +6,10 @@ exposes a simple callback interface to update the UI every frame.
 
 from imgui_bundle import imgui
 from imgui_bundle.python_backends import pyglet_backend
+
 import pyglet
 from pyglet import gl
+from pyglet.math import Mat4, Vec3
 
 from matplotlib import pyplot as plt
 
@@ -52,6 +54,12 @@ class GUI:
         self.job_counter = 0
         self.update = None  # type: ignore
         self.state = state
+        
+        self._pg_surfaces: dict[str, object] = {}
+
+    def _register_pg_surface(self, surf, key) -> None:
+        self._pg_surfaces[key] = surf
+        return key
 
     def _create_main_window(self) -> None:
         mv = imgui.get_main_viewport()
@@ -89,8 +97,9 @@ class GUI:
                 f['figure'].set_figwidth(f['width'] / 100)
                 f['figure'].set_figheight(f['height'] / 100)
 
-    def attach_state(self, state) -> None:
-        self.state = state
+
+    def get_surface(self, key: str):
+        return self._pg_surfaces.get(key)
 
     def submit_job(self, job, *args, callback=None) -> None:
         future = self.executor.submit(job, *args)
@@ -134,6 +143,16 @@ class GUI:
                                    gl.GL_ONE, gl.GL_ONE_MINUS_SRC_ALPHA)
             imgui.render()
             self.impl.render(imgui.get_draw_data())
+
+            # ------------------------------------------------------------------
+            # Per-surface batches in local coords
+            base_view = self.window.view          # save current view (usually I)
+            for surf in self._pg_surfaces.values():
+                self.window.view = (
+                    base_view @ Mat4.from_translation(Vec3(surf.ox, surf.oy, 0.0))
+                )
+                surf.batch.draw()
+            self.window.view = base_view          # restore
 
         self.state.update_window(window)
         self.state.gl_init(window, self.batch)

@@ -3,3 +3,5 @@ deamat.egg-info
 .github
 .venv
 ./deamat/__pycache__
+imgui.ini
+.aider*
