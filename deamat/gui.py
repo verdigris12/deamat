@@ -12,6 +12,7 @@ from pyglet import gl
 from matplotlib import pyplot as plt
 
 from concurrent.futures import ProcessPoolExecutor
+import multiprocessing as mp
 from multiprocessing import Lock
 
 import asyncio
@@ -19,7 +20,7 @@ import threading
 
 
 class GUI:
-    def __init__(self, state: "GUIState", width: int = 1280, height: int = 720) -> None:
+    def __init__(self, state, width: int = 1280, height: int = 720) -> None:
         global window
         window = pyglet.window.Window(
             width=width,
@@ -38,20 +39,19 @@ class GUI:
         )
         self.update_async = None
 
+        # Pyglet batch for custom drawing
+        self.batch = pyglet.graphics.Batch()
+
         self.window = window
         self.main_window_fullscreen = False
         self.main_window_name = "Main"
         self.impl = impl
         self.fps = 60.0
-        self.executor = ProcessPoolExecutor()
+        self.executor = ProcessPoolExecutor(mp_context=mp.get_context('spawn'))
         self.job_mutex = Lock()
         self.job_counter = 0
         self.update = None  # type: ignore
         self.state = state
-        state.window = {
-            'width': self.window.get_size()[0],
-            'height': self.window.get_size()[1]
-        }
 
     def _create_main_window(self) -> None:
         mv = imgui.get_main_viewport()
@@ -89,6 +89,9 @@ class GUI:
                 f['figure'].set_figwidth(f['width'] / 100)
                 f['figure'].set_figheight(f['height'] / 100)
 
+    def attach_state(self, state) -> None:
+        self.state = state
+
     def submit_job(self, job, *args, callback=None) -> None:
         future = self.executor.submit(job, *args)
         self.job_counter += 1
@@ -115,10 +118,25 @@ class GUI:
         def draw(dt: float) -> None:
             self._update_figures()
             self._update_ui(dt)
+
             self.window.clear()
+
+            self.batch.draw()
+
+            w, h = self.window.get_size()
+            gl.glViewport(0, 0, w, h)
+            gl.glDisable(gl.GL_DEPTH_TEST)
+            gl.glDisable(gl.GL_CULL_FACE)
+            gl.glPolygonMode(gl.GL_FRONT_AND_BACK, gl.GL_FILL)
+            gl.glEnable(gl.GL_BLEND)
+            gl.glBlendEquation(gl.GL_FUNC_ADD)
+            gl.glBlendFuncSeparate(gl.GL_SRC_ALPHA, gl.GL_ONE_MINUS_SRC_ALPHA,
+                                   gl.GL_ONE, gl.GL_ONE_MINUS_SRC_ALPHA)
             imgui.render()
-            self.state.batch.draw()
             self.impl.render(imgui.get_draw_data())
+
+        self.state.update_window(window)
+        self.state.gl_init(window, self.batch)
         pyglet.clock.schedule_interval(draw, 1 / self.fps)
         self.asyncio_thread.start()
         pyglet.app.run()

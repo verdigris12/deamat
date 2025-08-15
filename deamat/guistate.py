@@ -13,10 +13,11 @@ import pyglet
 
 class GUIState:
     def __init__(self) -> None:
-        # Pyglet batch for custom drawing
-        self.batch = pyglet.graphics.Batch()
         # window dimensions updated by GUI
-        self.window: dict | None = None  # type: ignore
+        self.window = {
+            'width': 0,
+            'height': 0
+        }
         self.figure_path = 'figures/'
         self.matplotlib_backend = 'Agg'
         self.config_path: str = ""
@@ -34,6 +35,14 @@ class GUIState:
         self.plt_style = style
         plt.style.use(style)
         self.invalidate_all_figures()
+
+    def gl_init(self, window: pyglet.window.Window, batch: pyglet.graphics.Batch) -> None:
+        """Override in subclasses to build GL resources.
+        Runs on the main thread right after the window exists.
+        Note that GL objects can't be initialized in __init__ - they
+        require an existing GL context, otherwise they segfault.
+        """
+        pass
 
     def add_figure(self, figname: str, figfunc, height: int = 250, title: str = "", width: int = 0) -> None:
         """Register a figure that will be rendered inside the GUI.
@@ -68,8 +77,7 @@ class GUIState:
         return getattr(self, 'data', None) is not None
 
     def update_window(self, window: pyglet.window.Window) -> None:
-        if self.window is not None:
-            self.window['width'], self.window['height'] = window.get_size()
+        self.window['width'], self.window['height'] = window.get_size()
 
     def invalidator(self, *args: str):
         """Return a callable that invalidates the given figures when called."""

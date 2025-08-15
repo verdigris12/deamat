@@ -33,7 +33,15 @@
           # for numpy
           blas lapack gfortran
           # For imgui
-          libGL xorg.libX11 xorg.libXi xorg.libXrandr mesa xorg.libXext libGLU
+          libGL libGLU
+          mesa 
+          xorg.libX11 
+          xorg.libXi 
+          xorg.libXrandr 
+          xorg.libXext 
+          xorg.libXinerama 
+          xorg.libXxf86vm 
+          xorg.libXrandr
         ];
       in {
         devShells.default = pkgs.mkShell {
