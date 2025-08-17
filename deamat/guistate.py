@@ -7,8 +7,8 @@ window, matplotlib figures and the preferred plotting style, and provides
 helpers to invalidate figures when state changes.
 """
 
+import glfw
 from matplotlib import pyplot as plt
-import pyglet
 
 
 class GUIState:
@@ -36,13 +36,6 @@ class GUIState:
         plt.style.use(style)
         self.invalidate_all_figures()
 
-    def gl_init(self, window: pyglet.window.Window, batch: pyglet.graphics.Batch) -> None:
-        """Override in subclasses to build GL resources.
-        Runs on the main thread right after the window exists.
-        Note that GL objects can't be initialized in __init__ - they
-        require an existing GL context, otherwise they segfault.
-        """
-        pass
 
     def add_figure(self, figname: str, figfunc, height: int = 250, title: str = "", width: int = 0) -> None:
         """Register a figure that will be rendered inside the GUI.
@@ -79,12 +72,5 @@ class GUIState:
     def data_loaded(self) -> bool:
         return getattr(self, 'data', None) is not None
 
-    def update_window(self, window: pyglet.window.Window) -> None:
-        self.window['width'], self.window['height'] = window.get_size()
-
-    def invalidator(self, *args: str):
-        """Return a callable that invalidates the given figures when called."""
-        def inv() -> None:
-            for figname in args:
-                self.invalidate_figure(figname)
-        return inv
+    def update_window(self, window: glfw._GLFWwindow) -> None:
+        self.window['width'], self.window['height'] = glfw.get_window_size(window) 

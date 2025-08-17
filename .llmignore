@@ -5,3 +5,5 @@ deamat.egg-info
 ./deamat/__pycache__
 imgui.ini
 .aider*
+uv.lock
+flake.lock
