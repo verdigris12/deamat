@@ -34,7 +34,7 @@ def update_ui(state: State, gui: dGUI, dt: float) -> None:
     if imgui.button('Re-sample'):
         state.reroll()
         state.invalidate_figure('hist')
-    dw.figure(state, 'hist', autosize=True)
+    dw.figure(state, 'hist', autosize=False)
     imgui.end()
 
 

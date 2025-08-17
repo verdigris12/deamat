@@ -424,8 +424,13 @@ class MPLView:
     # -------------------------------------------------------------------------
     # Main update
 
+    # -------------------------------------------------------------------------
+    def run(self) -> None:
+        self.gui.run()
+
+
     def update_ui(self, state: MPLVState, gui: GUI, dt: float) -> None:
-        # main menu bar
+
         if imgui.begin_main_menu_bar():
             if imgui.begin_menu("File", True):
                 clicked_save_pickle, _ = imgui.menu_item("Save as pickle", "Ctrl+S", False, True)
@@ -433,42 +438,63 @@ class MPLView:
                 clicked_exit, _ = imgui.menu_item("Exit", "Ctrl+Q", False, True)
                 if clicked_save_pickle:
                     file_path = pfd.save_file(
-                        "Save Figure as Pickle", "", "",
+                        "Save Figure as Pickle", "",
                         ["Pickle files (*.pkl)", "All files (*.*)"]
-                    )
+                    ).result()
                     if file_path:
                         with open(file_path, 'wb') as file:
                             pickle.dump(self.state.fig, file)
                 elif clicked_exit:
                     exit(0)
                 imgui.end_menu()
-            imgui.end_main_menu_bar()
+            if imgui.begin_menu("Layout", True):
+                save_clicked, _ = imgui.menu_item("Save Layout", "Ctrl+Shift+S", False, True)
+                load_clicked, _ = imgui.menu_item("Load Layout", "Ctrl+Shift+L", False, True)
 
-        available_width, available_height = imgui.get_content_region_avail()
-        imgui.columns(2, "columns", False)
-        imgui.set_column_width(0, available_width - state.sidebar_width)
-        imgui.set_column_width(1, state.sidebar_width)
+                io = imgui.get_io()
+                if save_clicked:
+                    path = pfd.save_file(
+                        "Save Layout", "",
+                        ["ImGui layout (*.ini)", "All files (*.*)"]
+                    ).result()
+                    if path:
+                        imgui.save_ini_settings_to_disk(path)
+                        io.set_ini_filename(path)
+                if load_clicked:
+                    paths = pfd.open_file("Load layout", "",
+                                           ["ImGui layout (*.ini)", "All files (*.*)"]).result()
+                    if paths:
+                        imgui.load_ini_settings_from_disk(paths[0])
+                        io.set_ini_filename(paths[0])
 
-        # Center the figure horizontally and vertically within the left column
-        column_width = imgui.get_column_width()
-        figure_width = state.fig.get_figwidth() * state.fig.get_dpi()
-        figure_height = state.fig.get_figheight() * state.fig.get_dpi()
+                imgui.end_menu()
+        imgui.end_main_menu_bar()
 
-        imgui.set_cursor_pos_x((column_width - figure_width) / 2)
-        imgui.set_cursor_pos_y((available_height - figure_height) / 2)
+        imgui.begin("Figure view")
+
+        fig_w = state.fig.get_figwidth() * state.fig.get_dpi()
+        fig_h = state.fig.get_figheight() * state.fig.get_dpi()
+
+        # Center within the remaining content region (figure is the only widget)
+        avail = imgui.get_content_region_avail()
+        cur = imgui.get_cursor_pos()
+        imgui.set_cursor_pos(imgui.ImVec2(
+            cur.x + max(0.0, (avail.x - fig_w) * 0.5),
+            cur.y + max(0.0, (avail.y - fig_h) * 0.5),
+        ))
 
         imgui_fig.fig(
-            '',
-            state.fig,
-            size=(figure_width, figure_height),
+            '', state.fig,
+            size=(fig_w, fig_h),
             refresh_image=state.refresh_required,
-            resizable=False
+            resizable=False,
         )
         state.refresh_required = False
 
-        imgui.next_column()
-        self._sidebar_ui(state)
+        imgui.end()
 
-    # -------------------------------------------------------------------------
-    def run(self) -> None:
-        self.gui.run()
+
+        imgui.begin("Figure properties")
+        self._sidebar_ui(state)
+        imgui.end()
+

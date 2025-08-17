@@ -47,11 +47,9 @@ def im_plot_figure(state, figname: str, width: int | None = None, height: int | 
     figure = fig_entry['figure']
     title = fig_entry['title']
     refresh = (not fig_entry['dirty']) and (fig_entry['texture_dirty'])
-    width = fig_entry['width']
-    height = fig_entry['height']
 
     if imgui.button('Redraw ' + title):
-        state.invalidate_figure(figname, width=width, height=height)
+        state.invalidate_figure(figname)
 
     imgui.same_line()
 
@@ -69,4 +67,4 @@ def im_plot_figure(state, figname: str, width: int | None = None, height: int | 
         if len(fpath) > 0:
             state.figure_path = fpath
             figure.savefig(fpath)
-    return imgui_fig.fig('', figure, refresh_image=refresh, size=imgui.ImVec2(width, height))
+    return imgui_fig.fig('', figure, refresh_image=refresh)
