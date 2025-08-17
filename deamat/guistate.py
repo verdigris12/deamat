@@ -51,24 +51,27 @@ class GUIState:
         a :class:`matplotlib.figure.Figure`.
         """
         self.figures[figname] = {
-            'figure': plt.figure(),
-            'make': figfunc,
-            'height': height,
-            'title': title,
-            'width': width
+            'figure': plt.figure(), # MPL figure object
+            'dirty': True,          # Figure update requested
+            'texture_dirty': True,  # Texture update necessary
+            'make': figfunc,        # Figure update function
+            'height': height,       # Figure height
+            'width': width,         # Figure width
+            'title': title,         # Figure title
         }
 
     def invalidate_figure(self, figname: str, width: int | None = None, height: int | None = None) -> None:
         if figname in self.figures:
             self.figures[figname]['dirty'] = True
+            self.figures[figname]['texture_dirty'] = True
             if width is not None:
                 self.figures[figname]['width'] = width
             if height is not None:
                 self.figures[figname]['height'] = height
 
     def invalidate_all_figures(self) -> None:
-        for f in self.figures.values():
-            f['dirty'] = True
+        for figname in self.figures:
+            self.invalidate_figure(figname)
 
     def config_loaded(self) -> bool:
         return self.config is not None

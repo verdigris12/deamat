@@ -18,10 +18,13 @@ class State(GUIState):
 
 def update_ui(state: State, gui: dGUI, dt: float) -> None:
     """Callback executed each frame to build the UI."""
+    imgui.set_next_window_size(imgui.ImVec2(300, 100))
+    imgui.begin('UI example')
     if imgui.button('Increase value'):
         state.value += 1
     imgui.same_line()
     imgui.text(f'{state.value}')
+    imgui.end()
 
 
 def main() -> None:

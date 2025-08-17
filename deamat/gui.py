@@ -56,6 +56,11 @@ class GUI:
         self.state = state
         
         self._pg_surfaces: dict[str, object] = {}
+        self._io = imgui.get_io()
+        self._io.config_flags |= (
+            imgui.ConfigFlags_.docking_enable |      # snap windows together
+            imgui.ConfigFlags_.viewports_enable      # allow native floating windows
+        )
 
     def _register_pg_surface(self, surf, key) -> None:
         self._pg_surfaces[key] = surf
@@ -65,22 +70,30 @@ class GUI:
         mv = imgui.get_main_viewport()
         imgui.set_next_window_pos((mv.pos.x, mv.pos.y))
         imgui.set_next_window_size((mv.size.x, mv.size.y))
+        imgui.set_next_window_bg_alpha(0)
         flags = imgui.WindowFlags_.menu_bar \
             | imgui.WindowFlags_.no_decoration \
             | imgui.WindowFlags_.no_resize \
             | imgui.WindowFlags_.no_move \
             | imgui.WindowFlags_.no_collapse \
-            | imgui.WindowFlags_.no_bring_to_front_on_focus
-        imgui.begin("Main", flags=flags)
+            | imgui.WindowFlags_.no_bring_to_front_on_focus \
+            | imgui.WindowFlags_.no_background
+        imgui.push_style_var(imgui.StyleVar_.window_rounding, 0.0)
+        imgui.push_style_var(imgui.StyleVar_.window_padding, (0.0, 0.0))
+        imgui.begin("MainDockHost", flags=flags)
+
+        imgui.dock_space(
+            imgui.get_id("MainDockSpace"),
+            (0.0, 0.0),
+            imgui.DockNodeFlags_.passthru_central_node   # clicks pass through empty centre
+        )
+        imgui.pop_style_var(2)
 
     def _update_ui(self, dt: float) -> None:
         self.impl.process_inputs()
         imgui.new_frame()
         self.state.update_window(self.window)
-        if self.main_window_fullscreen:
-            self._create_main_window()
-        else:
-            imgui.begin("Main")
+        self._create_main_window()
         self.job_mutex.acquire()
         if self.update:
             self.update(self.state, self, dt)
@@ -144,7 +157,11 @@ class GUI:
             imgui.render()
             self.impl.render(imgui.get_draw_data())
 
-            # ------------------------------------------------------------------
+            if self._io.config_flags & imgui.ConfigFlags_.viewports_enable:
+                imgui.update_platform_windows()
+                imgui.render_platform_windows_default()
+                self.window.switch_to()    # restore Pyglet context
+
             # Per-surface batches in local coords
             base_view = self.window.view          # save current view (usually I)
             for surf in self._pg_surfaces.values():
@@ -153,7 +170,6 @@ class GUI:
                 )
                 surf.batch.draw()
             self.window.view = base_view          # restore
-
         self.state.update_window(window)
         self.state.gl_init(window, self.batch)
         pyglet.clock.schedule_interval(draw, 1 / self.fps)

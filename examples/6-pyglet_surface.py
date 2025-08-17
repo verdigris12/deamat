@@ -40,5 +40,6 @@ def ui(state: State, gui: dGUI, dt: float):
 if __name__ == "__main__":
     gui = dGUI(State())
     gui.update = ui
+    gui.main_window_fullscreen = True
     gui.run()
 

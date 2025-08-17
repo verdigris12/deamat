@@ -24,16 +24,16 @@ class State(GUIState):
 
     def reroll(self) -> None:
         # regenerate the series with mean equal to the current value
+        self.value += 10
         self.series = np.random.normal(loc=self.value, scale=1.0, size=1000)
 
 
 def update_ui(state: State, gui: dGUI, dt: float) -> None:
-    if imgui.button('Increase value'):
-        state.value += 1
+    imgui.set_next_window_size(imgui.ImVec2(500, 500), cond=imgui.Cond_.once)
+    imgui.begin('Matplotlib example')
+    if imgui.button('Re-sample'):
         state.reroll()
         state.invalidate_figure('hist')
-    imgui.text(f'{state.value}')
-    imgui.begin("Figure")
     dw.figure(state, 'hist', autosize=True)
     imgui.end()
 
@@ -54,7 +54,7 @@ def main() -> None:
         'hist',
         imfig_hist,
         height=200,
-        width=500,
+        width=400,
         title='Figure 1'
     )
     gui.run()
