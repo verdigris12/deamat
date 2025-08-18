@@ -171,6 +171,7 @@ class GUI:
             raise RuntimeError("GUI has no valid window")
 
         self.state.update_window(self.window)  # type: ignore[arg-type]
+        # self.state.gl_init(self.window, None)
         self.asyncio_thread.start()
 
         last_time: float = time.perf_counter()

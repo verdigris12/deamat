@@ -41,6 +41,9 @@
           xorg.libXext 
           xorg.libXinerama 
           xorg.libXxf86vm 
+          # For vispy
+          freetype
+          fontconfig
         ];
       in {
         devShells.default = pkgs.mkShell {
