@@ -1,7 +1,7 @@
 # VisPy ≥ 0.14 widget for deamat, with imgui_bundle ≥ 1.91.5
 # Renders a VisPy SceneCanvas into an OpenGL texture and shows it via imgui.image().
 
-from typing import Any, Dict, Tuple
+from typing import Any, Dict, Tuple, Callable
 import numpy as np
 from OpenGL import GL as gl
 from vispy import scene
@@ -44,28 +44,22 @@ def _upload_rgba(tex_id: int, rgba: np.ndarray) -> None:
     gl.glTexSubImage2D(gl.GL_TEXTURE_2D, 0, 0, 0, w, h, gl.GL_RGBA, gl.GL_UNSIGNED_BYTE, rgba)
 
 
-def vispy_canvas(gui: Any, state: Any, canvas_id: str) -> None:
+def vispy_canvas(gui: Any, state: Any, canvas_id: str, on_init: Callable[[scene.SceneCanvas, scene.widgets.ViewBox], None] | None = None) -> None:
     """
     Use inside an ImGui window; the canvas fills the entire content region.
     Exposes the SceneCanvas at gui.canvases[canvas_id].
     """
-    registry: Dict[str, Dict[str, Any]] = getattr(gui, "_vispy_canvases", {})
-    if not hasattr(gui, "_vispy_canvases"):
-        gui._vispy_canvases = registry
-
-    if not hasattr(gui, "canvases"):
-        gui.canvases = {}
+    registry = gui._vispy_canvases
 
     gui_ctx = gui.window  # GLFWwindow holding the main OpenGL context
 
     # Create on first use
     if canvas_id not in registry:
-        # Create VisPy canvas (its constructor may switch contexts internally)
         canvas = scene.SceneCanvas(keys="interactive", size=(2, 2), show=False)
         view = canvas.central_widget.add_view()
         view.camera = scene.cameras.TurntableCamera()
 
-        # Allocate a GL texture in the GUI context, and create an ImTextureRef for it
+
         glfw.make_context_current(gui_ctx)
         tex_id = _create_texture((2, 2))
         tex_ref = _make_imtexture_ref(tex_id)
@@ -76,8 +70,12 @@ def vispy_canvas(gui: Any, state: Any, canvas_id: str) -> None:
             "tex_id": tex_id,
             "tex_ref": tex_ref,
             "size": (2, 2),
+            "inited": False,
         }
         gui.canvases[canvas_id] = canvas
+        # Run user init once the canvas exists
+        if on_init is not None:
+            on_init(canvas, view)
 
     entry = registry[canvas_id]
     canvas: scene.SceneCanvas = entry["canvas"]

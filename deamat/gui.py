@@ -1,16 +1,18 @@
 """
-Drop-in replacement for the original *pyglet*-based ``gui.py``.
-
 • Uses **GLFW** for windowing, **PyOpenGL** for rendering, and
   ``imgui_bundle``’s pure‑Python **GlfwRenderer** backend.
 • Keeps the public interface (constructor, ``run()``, callbacks, etc.) so no
   other file needs changes.
 • Provides standard type hints that run on Python 3.11 without relying on
   ``from __future__ import annotations``.
+• Adds public ``self.canvases`` (and private ``self._vispy_canvases``) registries
+  for widgets like ``vispy_canvas``.
+• Persists docking layouts to ``$XDG_CONFIG_HOME/deamat/layout.ini``.
 """
 
 from typing import Any, Callable, Coroutine, Optional
 import time
+import os
 import asyncio
 import threading
 from concurrent.futures import ProcessPoolExecutor
@@ -33,10 +35,10 @@ class GUI:
         # ‑‑ GLFW init ‑‑ ------------------------------------------------
         if not glfw.init():
             raise RuntimeError("Could not initialise GLFW; check DISPLAY / drivers")
-
+ 
         glfw.window_hint(glfw.CONTEXT_VERSION_MAJOR, 3)
         glfw.window_hint(glfw.CONTEXT_VERSION_MINOR, 3)
-        glfw.window_hint(glfw.OPENGL_PROFILE, glfw.OPENGL_CORE_PROFILE)
+        glfw.window_hint(glfw.OPENGL_PROFILE, glfw.OPENGL_COMPAT_PROFILE)  # VisPy/gloo needs a compat profile (not core)
         glfw.window_hint(glfw.RESIZABLE, glfw.TRUE)
 
         self.window: glfw._GLFWwindow | None = glfw.create_window(
@@ -62,6 +64,10 @@ class GUI:
         self.fps: float = 60.0
         self.update: Optional[Callable[[Any, "GUI", float], None]] = None
         self.update_async: Optional[Callable[[Any, "GUI", float], Coroutine[Any, Any, None]]] = None
+
+        # Public/Private canvas registries for widgets
+        self.canvases: dict[str, Any] = {}
+        self._vispy_canvases: dict[str, Any] = {}
 
         # ‑‑ asyncio helper thread --------------------------------------
         self.asyncio_loop: asyncio.AbstractEventLoop = asyncio.new_event_loop()
@@ -171,7 +177,14 @@ class GUI:
             raise RuntimeError("GUI has no valid window")
 
         self.state.update_window(self.window)  # type: ignore[arg-type]
-        # self.state.gl_init(self.window, None)
+        # If subclasses need GL objects, they can override gl_init
+        if hasattr(self.state, "gl_init"):
+            try:
+                self.state.gl_init(self.window, None)  # type: ignore[arg-type]
+            except TypeError:
+                # Backward-compat: some implementations take just (window)
+                self.state.gl_init(self.window)  # type: ignore[misc]
+
         self.asyncio_thread.start()
 
         last_time: float = time.perf_counter()
@@ -207,6 +220,7 @@ class GUI:
                 time.sleep(frame_dur - elapsed)
 
         # ‑‑ shutdown ‑‑
+        imgui.save_ini_settings_to_disk(self._layout_path)
         self.impl.shutdown()
         glfw.terminate()
 
