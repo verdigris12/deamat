@@ -220,7 +220,6 @@ class GUI:
                 time.sleep(frame_dur - elapsed)
 
         # ‑‑ shutdown ‑‑
-        imgui.save_ini_settings_to_disk(self._layout_path)
         self.impl.shutdown()
         glfw.terminate()
 
