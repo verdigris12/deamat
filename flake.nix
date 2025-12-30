@@ -2,7 +2,7 @@
   description = "Deamat: imgui+matplotlib boilerplate";
 
   inputs = {
-    nixpkgs.url = "github:NixOS/nixpkgs/e2605d0744c2417b09f8bf850dfca42fcf537d34";
+    nixpkgs.url = "github:NixOS/nixpkgs/11cb3517b3af6af300dd6c055aeda73c9bf52c48";
     flake-utils.url = "github:numtide/flake-utils";
   };
 
