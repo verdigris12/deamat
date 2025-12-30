@@ -1,15 +1,3 @@
-"""
-• Uses **GLFW** for windowing, **PyOpenGL** for rendering, and
-  ``imgui_bundle``’s pure‑Python **GlfwRenderer** backend.
-• Keeps the public interface (constructor, ``run()``, callbacks, etc.) so no
-  other file needs changes.
-• Provides standard type hints that run on Python 3.11 without relying on
-  ``from __future__ import annotations``.
-• Adds public ``self.canvases`` (and private ``self._vispy_canvases``) registries
-  for widgets like ``vispy_canvas``.
-• Persists docking layouts to ``$XDG_CONFIG_HOME/deamat/layout.ini``.
-"""
-
 from typing import Any, Callable, Coroutine, Optional
 import time
 import os
@@ -220,7 +208,5 @@ class GUI:
                 time.sleep(frame_dur - elapsed)
 
         # ‑‑ shutdown ‑‑
-        imgui.save_ini_settings_to_disk(self._layout_path)
         self.impl.shutdown()
         glfw.terminate()
-
