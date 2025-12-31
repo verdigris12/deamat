@@ -128,10 +128,12 @@ class GUI:
 
     def _update_figures(self) -> None:
         plt.style.use(self.state.plt_style)
-        plt.tight_layout()
         for f in self.state.figures.values():
             if f.get("dirty", True):
                 f["dirty"] = False
+                old_fig = f.get("figure")
+                if old_fig is not None:
+                    plt.close(old_fig)
                 fig = f["make"](self.state)
                 fig.set_figwidth(f["width"] / 100)
                 fig.set_figheight(f["height"] / 100)
