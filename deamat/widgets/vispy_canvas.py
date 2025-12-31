@@ -1,19 +1,17 @@
-# VisPy ≥ 0.14 widget for deamat, with imgui_bundle ≥ 1.91.5
+# VisPy widget for deamat
 # Renders a VisPy SceneCanvas into an OpenGL texture and shows it via imgui.image().
+# Includes event forwarding for interactive camera controls.
 
-from typing import Any, Dict, Tuple, Callable
+from typing import Any, Callable
 import numpy as np
 from OpenGL import GL as gl
-from vispy import scene
+from vispy import scene, app
+from vispy.util import keys as vispy_keys
 from imgui_bundle import imgui
 import glfw
 
-
-def _downsample_2x(rgba: np.ndarray) -> np.ndarray:
-    """Downsample RGBA image by 2x using box filter (average of 2x2 blocks)."""
-    h, w, c = rgba.shape
-    # Reshape to (h//2, 2, w//2, 2, c) and average over axes 1 and 3
-    return rgba.reshape(h // 2, 2, w // 2, 2, c).mean(axis=(1, 3)).astype(np.uint8)
+# Force VisPy to use GLFW backend
+app.use_app('glfw')
 
 
 def _make_imtexture_ref(tex_id: int) -> Any:
@@ -21,17 +19,15 @@ def _make_imtexture_ref(tex_id: int) -> Any:
     Wrap a GL texture name into an ImTextureRef expected by imgui.image().
     Newer imgui_bundle exposes ImTextureID(...) returning an ImTextureRef.
     """
-    # Prefer ImTextureID (most common on recent imgui_bundle)
     if hasattr(imgui, "ImTextureID"):
         return imgui.ImTextureID(int(tex_id))
-    # Fallback if the binding exposes ImTextureRef directly
     if hasattr(imgui, "ImTextureRef"):
         return imgui.ImTextureRef(int(tex_id))
-    # If neither exists, we can’t satisfy imgui.image() contract
     raise RuntimeError("This imgui_bundle build requires an ImTextureRef/ImTextureID wrapper.")
 
 
-def _create_texture(size: Tuple[int, int]) -> int:
+def _create_texture(size: tuple[int, int]) -> int:
+    """Create an OpenGL texture in the current context."""
     tex_id = int(gl.glGenTextures(1))
     w, h = size
     gl.glBindTexture(gl.GL_TEXTURE_2D, tex_id)
@@ -44,11 +40,90 @@ def _create_texture(size: Tuple[int, int]) -> int:
 
 
 def _upload_rgba(tex_id: int, rgba: np.ndarray) -> None:
-    # rgba is HxWx4 uint8; imgui expects origin at top-left, so we flip vertically
+    """Upload RGBA pixel data to a texture."""
     h, w, _ = rgba.shape
     gl.glBindTexture(gl.GL_TEXTURE_2D, tex_id)
     gl.glPixelStorei(gl.GL_UNPACK_ALIGNMENT, 1)
     gl.glTexSubImage2D(gl.GL_TEXTURE_2D, 0, 0, 0, w, h, gl.GL_RGBA, gl.GL_UNSIGNED_BYTE, rgba)
+
+
+def _forward_events(canvas: scene.SceneCanvas, size: tuple[int, int]) -> None:
+    """
+    Forward ImGui mouse/keyboard events to VisPy canvas when widget is hovered.
+    
+    This enables interactive camera controls (TurntableCamera, etc.) to work
+    with mouse drag, scroll, etc.
+    """
+    if not imgui.is_item_hovered():
+        return
+    
+    io = imgui.get_io()
+    
+    # Calculate mouse position relative to widget (top-left origin)
+    item_min = imgui.get_item_rect_min()
+    mouse_x = io.mouse_pos.x - item_min.x
+    mouse_y = io.mouse_pos.y - item_min.y
+    
+    # VisPy uses bottom-left origin, so flip Y
+    mouse_y_vispy = size[1] - mouse_y
+    pos = (mouse_x, mouse_y_vispy)
+    
+    # Build modifier list
+    modifiers = []
+    if io.key_shift:
+        modifiers.append(vispy_keys.SHIFT)
+    if io.key_ctrl:
+        modifiers.append(vispy_keys.CONTROL)
+    if io.key_alt:
+        modifiers.append(vispy_keys.ALT)
+    modifiers = tuple(modifiers)
+    
+    # Button mapping: ImGui (0=left, 1=right, 2=middle) -> VisPy (1=left, 2=right, 3=middle)
+    button_map = {0: 1, 1: 2, 2: 3}
+    
+    # Track which buttons are currently pressed for move events
+    buttons_pressed = []
+    for imgui_btn, vispy_btn in button_map.items():
+        if io.mouse_down[imgui_btn]:
+            buttons_pressed.append(vispy_btn)
+    
+    # Mouse press events
+    for imgui_btn, vispy_btn in button_map.items():
+        if imgui.is_mouse_clicked(imgui_btn):
+            canvas.events.mouse_press(  # type: ignore[attr-defined]
+                pos=pos,
+                button=vispy_btn,
+                buttons=buttons_pressed,
+                modifiers=modifiers,
+            )
+    
+    # Mouse release events
+    for imgui_btn, vispy_btn in button_map.items():
+        if imgui.is_mouse_released(imgui_btn):
+            canvas.events.mouse_release(  # type: ignore[attr-defined]
+                pos=pos,
+                button=vispy_btn,
+                buttons=buttons_pressed,
+                modifiers=modifiers,
+            )
+    
+    # Mouse move events (always emit when hovered, VisPy cameras need this for drag)
+    canvas.events.mouse_move(  # type: ignore[attr-defined]
+        pos=pos,
+        button=buttons_pressed[0] if buttons_pressed else None,
+        buttons=buttons_pressed,
+        modifiers=modifiers,
+    )
+    
+    # Mouse wheel events
+    wheel_y = io.mouse_wheel
+    wheel_x = io.mouse_wheel_h
+    if wheel_x != 0 or wheel_y != 0:
+        canvas.events.mouse_wheel(  # type: ignore[attr-defined]
+            pos=pos,
+            delta=(wheel_x, wheel_y),
+            modifiers=modifiers,
+        )
 
 
 def vispy_canvas(
@@ -56,11 +131,15 @@ def vispy_canvas(
     state: Any,
     canvas_id: str,
     on_init: Callable[[scene.SceneCanvas, scene.widgets.ViewBox], None] | None = None,
-    supersample: int = 1,
 ) -> None:
     """
+    Embed a VisPy SceneCanvas as an ImGui widget.
+    
     Use inside an ImGui window; the canvas fills the entire content region.
-    Exposes the SceneCanvas at gui.canvases[canvas_id].
+    The SceneCanvas is accessible at gui.canvases[canvas_id].
+    
+    Mouse and keyboard events are forwarded to VisPy when the widget is hovered,
+    enabling interactive camera controls.
 
     Parameters
     ----------
@@ -72,29 +151,26 @@ def vispy_canvas(
         Unique identifier for this canvas.
     on_init : callable, optional
         Callback invoked once when the canvas is created, receiving
-        (canvas, view) as arguments.
-    supersample : int, default 1
-        Supersampling factor for anti-aliasing. Use 2 for 2x SSAA (smoother
-        edges but higher GPU cost). Must be 1 or 2.
+        (canvas, view) as arguments. Use this to add visuals to the scene.
     """
-    if supersample not in (1, 2):
-        raise ValueError(f"supersample must be 1 or 2, got {supersample}")
-
     registry = gui._vispy_canvases
-    gui_ctx = gui.window  # GLFWwindow holding the main OpenGL context
+    gui_ctx = gui.window
 
     # Compute target size from available ImGui region
     avail = imgui.get_content_region_avail()
     display_size = (max(1, int(avail.x)), max(1, int(avail.y)))
-    # Render size may be larger for supersampling
-    render_size = (display_size[0] * supersample, display_size[1] * supersample)
 
     # Create on first use
     if canvas_id not in registry:
-        canvas = scene.SceneCanvas(keys="interactive", size=render_size, show=False)
+        canvas = scene.SceneCanvas(keys="interactive", size=display_size, show=False)
         view = canvas.central_widget.add_view()
         view.camera = scene.cameras.TurntableCamera()
 
+        # Run user init callback
+        if on_init is not None:
+            on_init(canvas, view)
+
+        # Create texture in GUI context
         glfw.make_context_current(gui_ctx)
         tex_id = _create_texture(display_size)
         tex_ref = _make_imtexture_ref(tex_id)
@@ -105,38 +181,25 @@ def vispy_canvas(
             "tex_id": tex_id,
             "tex_ref": tex_ref,
             "display_size": display_size,
-            "render_size": render_size,
-            "supersample": supersample,
-            "inited": False,
         }
         gui.canvases[canvas_id] = canvas
-        # Run user init once the canvas exists
-        if on_init is not None:
-            on_init(canvas, view)
 
     entry = registry[canvas_id]
     canvas: scene.SceneCanvas = entry["canvas"]
 
     # Resize VisPy canvas and our GL texture if needed
-    needs_resize = (
-        display_size != entry["display_size"] or
-        supersample != entry["supersample"]
-    )
-    if needs_resize:
-        render_size = (display_size[0] * supersample, display_size[1] * supersample)
-        canvas.size = render_size
+    if display_size != entry["display_size"]:
+        canvas.size = display_size
         glfw.make_context_current(gui_ctx)
-        # Create new texture before deleting old one to avoid leak on failure
+        # Create new texture before deleting old one
         new_tex = _create_texture(display_size)
         old_tex = entry["tex_id"]
         entry["tex_id"] = new_tex
         entry["tex_ref"] = _make_imtexture_ref(new_tex)
         entry["display_size"] = display_size
-        entry["render_size"] = render_size
-        entry["supersample"] = supersample
         gl.glDeleteTextures([old_tex])
 
-    # Render with VisPy (this may switch to VisPy's internal context)
+    # Render with VisPy (switches to VisPy's internal context)
     frame = canvas.render()  # returns HxWx4 uint8, origin bottom-left
 
     # Ensure we are back on the GUI context before touching GL
@@ -145,18 +208,13 @@ def vispy_canvas(
     # Flip to top-left origin for ImGui
     frame_flipped = np.flipud(frame)
 
-    # Downsample if supersampling is enabled
-    if supersample == 2:
-        frame_flipped = _downsample_2x(frame_flipped)
-
     _upload_rgba(entry["tex_id"], frame_flipped)
 
-    # Draw as an ImGui image, filling the window
-    # Note: imgui.image requires ImTextureRef and ImVec2
+    # Draw as an ImGui image
     imgui.image(
         entry["tex_ref"],
         imgui.ImVec2(float(display_size[0]), float(display_size[1])),
-        imgui.ImVec2(0.0, 1.0),
-        imgui.ImVec2(1.0, 0.0),
     )
 
+    # Forward mouse/keyboard events to VisPy for interactivity
+    _forward_events(canvas, display_size)

@@ -41,6 +41,8 @@ dependencies = [
     "typing_extensions>=4.12.2",
     "xxhash>=3.4.1",
     "vispy>=0.15.2",
+    "ipython>=9.8.0",
+    "pytest>=9.0.2",
 ]
 classifiers = [
     "Development Status :: 3 - Alpha",
