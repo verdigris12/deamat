@@ -1,4 +1,5 @@
 from typing import Any, Callable, Coroutine, Optional
+import logging
 import time
 import os
 import asyncio
@@ -15,6 +16,8 @@ from matplotlib import pyplot as plt
 
 class GUI:
     """High‑level GUI manager backed by GLFW."""
+
+    logger = logging.getLogger(__name__)
 
     # ------------------------------------------------------------------
     # Construction / initialisation
@@ -111,7 +114,7 @@ class GUI:
                 merge_fn = self.state._sync_queue.get_nowait()
                 merge_fn()
             except Exception:
-                break
+                self.logger.error("Exception in sync queue merge function", exc_info=True)
     
     def _update_ui(self, dt: float) -> None:
         # Process any pending state updates from async coroutines
