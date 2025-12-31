@@ -4,7 +4,7 @@
 
 **Deamat** is a Python GUI scaffolding library (v0.2.0) for building interactive scientific visualization applications. It combines:
 
-- **imgui_bundle** (with pyglet backend) for immediate-mode GUI
+- **imgui_bundle** (with GLFW backend) for immediate-mode GUI
 - **GLFW** for window management
 - **matplotlib** for 2D plotting
 - **VisPy** for 3D visualization
@@ -22,7 +22,6 @@ deamat/
 └── widgets/
     ├── __init__.py      # Widget exports
     ├── figure.py        # Matplotlib figure embedding (im_plot_figure)
-    ├── pg_surface.py    # Pyglet surface widget (experimental)
     └── vispy_canvas.py  # VisPy 3D canvas widget
 ```
 
@@ -54,7 +53,6 @@ Async context manager for thread-safe state mutation from background threads usi
 ### Widgets (`widgets/`)
 - `im_plot_figure()`: Embeds matplotlib figures into ImGui windows
 - `vispy_canvas()`: Renders VisPy SceneCanvas into ImGui via texture upload
-- `pg_surface()`: Experimental pyglet batch rendering
 
 ### MPLView (`mpl_view.py`)
 Standalone matplotlib figure viewer with interactive editing, styling controls, and export capabilities.

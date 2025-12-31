@@ -1,6 +1,6 @@
 # Deamat
 
-Immediate-mode GUI scaffolding for Python that brings together `imgui_bundle` (on top of `pyglet`) and `matplotlib`.
+Immediate-mode GUI scaffolding for Python that brings together `imgui_bundle` (on top of GLFW) and `matplotlib`.
 Supports simple spawning job processes and executing async coroutines.
 
 ---
