@@ -88,8 +88,9 @@ For NixOS, the project flake has a devshell.
 uv run examples/1-basic.py
 uv run examples/2-ui_update.py
 uv run examples/3-matplotlib.py
-uv run examples/4-pyglet_animation.py
-uv run examples/5-async_update.py
+uv run examples/4-async_update.py
+uv run examples/5-vispy.py
+uv run examples/7-sync_context.py
 ```
 
 ---

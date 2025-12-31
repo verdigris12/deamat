@@ -104,7 +104,19 @@ class GUI:
     # ------------------------------------------------------------------
     # Per‑frame handlers
     # ------------------------------------------------------------------
+    def _drain_sync_queue(self) -> None:
+        """Process pending state synchronization callbacks from async coroutines."""
+        while not self.state._sync_queue.empty():
+            try:
+                merge_fn = self.state._sync_queue.get_nowait()
+                merge_fn()
+            except Exception:
+                break
+    
     def _update_ui(self, dt: float) -> None:
+        # Process any pending state updates from async coroutines
+        self._drain_sync_queue()
+        
         self.impl.process_inputs()
         imgui.new_frame()
         self.state.update_window(self.window)  # type: ignore[arg-type]

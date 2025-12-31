@@ -7,12 +7,54 @@ window, matplotlib figures and the preferred plotting style, and provides
 helpers to invalidate figures when state changes.
 """
 
+from __future__ import annotations
+
+import queue
+
 import glfw
 from matplotlib import pyplot as plt
 
+from .sync import SyncContext
+
 
 class GUIState:
+    """Base class for application state.
+    
+    Subclass this to hold your application-specific state. The GUI will
+    pass an instance of your state class to the update callback each frame.
+    
+    Thread Safety
+    -------------
+    When mutating state from async coroutines, use the :meth:`sync` context
+    manager to ensure changes are applied on the main thread::
+    
+        async def fetch_data(gui):
+            result = await some_api()
+            async with gui.state.sync() as state:
+                state.data = result
+    
+    Deep Copy Customization
+    -----------------------
+    The sync context uses ``copy.deepcopy`` to create a snapshot of the state.
+    If your state contains objects that cannot be deep copied (e.g., file handles,
+    locks, GUI resources), override ``__deepcopy__`` in your subclass::
+    
+        def __deepcopy__(self, memo):
+            cls = self.__class__
+            result = cls.__new__(cls)
+            memo[id(self)] = result
+            for k, v in self.__dict__.items():
+                if k in ('_sync_queue', 'some_uncopyable_resource'):
+                    setattr(result, k, v)  # shallow copy reference
+                else:
+                    setattr(result, k, copy.deepcopy(v, memo))
+            return result
+    """
+    
     def __init__(self) -> None:
+        # Sync queue for thread-safe state updates from async coroutines
+        self._sync_queue: queue.Queue = queue.Queue()
+        
         # window dimensions updated by GUI
         self.window = {
             'width': 0,
@@ -30,6 +72,35 @@ class GUIState:
         self.show_demo_window = False
         self.load_seq_ids = False
         self.statusline = 'Ready'
+    
+    def sync(self, deep: bool = False) -> SyncContext:
+        """Create an async context manager for thread-safe state mutation.
+        
+        Use this when mutating state from async coroutines to ensure changes
+        are applied on the main thread.
+        
+        Parameters
+        ----------
+        deep : bool, default False
+            If True, perform recursive merge of nested objects.
+            If False, only merge top-level attributes (faster).
+        
+        Returns
+        -------
+        SyncContext
+            An async context manager that yields a copy of this state.
+        
+        Example
+        -------
+        ::
+        
+            async def my_coroutine(gui):
+                result = await some_async_api()
+                async with gui.state.sync() as state:
+                    state.data = result
+                    state.status = "loaded"
+        """
+        return SyncContext(self, deep=deep)
 
     def set_plt_style(self, style: str) -> None:
         self.plt_style = style
