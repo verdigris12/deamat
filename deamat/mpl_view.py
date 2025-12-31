@@ -318,7 +318,7 @@ class MPLView:
         imgui.pop_id()
 
     def _axis_settings(self, ax) -> None:
-        self._font_button_ui(ax.yaxis.get_label(), id="xaxis_font")
+        self._font_button_ui(ax.xaxis.get_label(), id="xaxis_font")
         imgui.same_line()
         changed, xlabel = imgui.input_text("X Label", ax.get_xlabel(), 256)
         if changed:
@@ -346,7 +346,7 @@ class MPLView:
         imgui.same_line()
         changed, bottom_spine_on = imgui.checkbox("Bottom Spine", ax.spines['bottom'].get_visible())
         if changed:
-            ax.spines['top'].set_visible(bottom_spine_on)
+            ax.spines['bottom'].set_visible(bottom_spine_on)
 
         imgui.same_line()
         changed, right_spine_on = imgui.checkbox("Right Spine", ax.spines['right'].get_visible())
@@ -393,7 +393,7 @@ class MPLView:
 
         if imgui.collapsing_header('Y Tick properties'):
             imgui.begin_child('ytickprops')
-            self._font_ui(ax.xaxis.get_ticklabels())
+            self._font_ui(ax.yaxis.get_ticklabels())
             imgui.end_child()
 
     def _axes_settings_ui(self, ax) -> None:
