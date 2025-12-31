@@ -65,9 +65,14 @@ class State(GUIState):
         # Add background
         scene.add(gfx.Background.from_color((0.1, 0.1, 0.1, 1.0)))
 
-        # Set up orbit controller
-        self.controller = gfx.OrbitController()
+        # Set up orbit controller with target at cube center
+        self.controller = gfx.OrbitController(target=(0, 0, 0))
         self.controller.add_camera(camera)
+        
+        # Adjust control sensitivity (default multipliers are quite sensitive)
+        # Format: (action_name, mode, multiplier)
+        self.controller.controls["mouse1"] = ("rotate", "drag", (0.004, 0.004))  # Reduce rotate speed
+        self.controller.controls["mouse2"] = ("pan", "drag", (0.8, 0.8))  # Reduce pan speed
 
         # Position camera
         camera.local.position = (5, 3, 5)

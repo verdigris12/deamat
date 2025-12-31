@@ -19,14 +19,17 @@ class _FakeViewport:
     
     pygfx controllers expect a viewport with `rect`, `is_inside()` method,
     and a `renderer` attribute with `request_draw()`.
+    
+    The rect must be in screen coordinates so that is_inside() works correctly
+    with absolute mouse positions, and so drag actions calculate deltas properly.
     """
     
-    def __init__(self, width: int, height: int):
-        self._rect = (0, 0, width, height)
+    def __init__(self, x: float, y: float, width: int, height: int):
+        self._rect = (x, y, width, height)
         self.renderer = _FakeRenderer()
     
     @property
-    def rect(self) -> tuple[int, int, int, int]:
+    def rect(self) -> tuple[float, float, int, int]:
         return self._rect
     
     def is_inside(self, x: float, y: float) -> bool:
@@ -64,12 +67,14 @@ def _handle_imgui_events(
     io = imgui.get_io()
     mouse_pos = imgui.get_mouse_pos()
     
-    # Calculate relative position within canvas
-    rel_x = mouse_pos.x - image_pos[0]
-    rel_y = mouse_pos.y - image_pos[1]
+    # Use absolute screen coordinates - pygfx controllers expect consistent
+    # coordinate space for drag operations (they store initial position as offset
+    # and calculate deltas from subsequent positions)
+    abs_x = mouse_pos.x
+    abs_y = mouse_pos.y
     
-    # Create viewport for controller
-    viewport = _FakeViewport(width, height)
+    # Create viewport with screen-space rect so is_inside() works correctly
+    viewport = _FakeViewport(image_pos[0], image_pos[1], width, height)
     
     # Track button states
     buttons_down = []
@@ -96,8 +101,8 @@ def _handle_imgui_events(
         if imgui.is_mouse_clicked(btn):
             event = gfx.PointerEvent(
                 type="pointer_down",
-                x=rel_x,
-                y=rel_y,
+                x=abs_x,
+                y=abs_y,
                 button=btn_num,
                 buttons=tuple(buttons_down),
                 modifiers=tuple(modifiers),
@@ -107,8 +112,8 @@ def _handle_imgui_events(
         if imgui.is_mouse_released(btn):
             event = gfx.PointerEvent(
                 type="pointer_up",
-                x=rel_x,
-                y=rel_y,
+                x=abs_x,
+                y=abs_y,
                 button=btn_num,
                 buttons=tuple(buttons_down),
                 modifiers=tuple(modifiers),
@@ -119,8 +124,8 @@ def _handle_imgui_events(
     if any(buttons_down):
         event = gfx.PointerEvent(
             type="pointer_move",
-            x=rel_x,
-            y=rel_y,
+            x=abs_x,
+            y=abs_y,
             button=0,
             buttons=tuple(buttons_down),
             modifiers=tuple(modifiers),
@@ -128,15 +133,17 @@ def _handle_imgui_events(
         controller.handle_event(event, viewport)
     
     # Handle mouse wheel
+    # imgui gives wheel values typically in range [-1, 1] per scroll tick
+    # pygfx controller multiplier is -0.001, so we scale to get reasonable zoom speed
     wheel_y = io.mouse_wheel
     wheel_x = io.mouse_wheel_h
     if wheel_y != 0 or wheel_x != 0:
         event = gfx.WheelEvent(
             type="wheel",
-            x=rel_x,
-            y=rel_y,
-            dx=wheel_x * 0.1,  # Scale to reasonable values
-            dy=wheel_y * 0.1,
+            x=abs_x,
+            y=abs_y,
+            dx=wheel_x * 50,  # Scale for reasonable zoom granularity
+            dy=wheel_y * 50,
             button=0,
             buttons=tuple(buttons_down),
             modifiers=tuple(modifiers),
@@ -286,5 +293,15 @@ def pygfx_canvas(
         imgui.ImVec2(float(width), float(height)),
     )
 
+    # Overlay an invisible button to capture mouse events and prevent
+    # ImGui from using them for window dragging
+    imgui.set_cursor_screen_pos(cursor_pos)  # Reset cursor to image position
+    imgui.invisible_button(f"##{canvas_id}_input", imgui.ImVec2(float(width), float(height)))
+
     # Handle mouse events for controller
     _handle_imgui_events(entry, width, height, image_pos)
+    
+    # Tick the controller to process accumulated actions and update camera
+    # (pygfx controllers normally do this on 'before_render' events)
+    if entry.get("controller") is not None:
+        entry["controller"].tick()
