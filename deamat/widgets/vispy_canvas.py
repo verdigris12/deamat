@@ -9,6 +9,13 @@ from imgui_bundle import imgui
 import glfw
 
 
+def _downsample_2x(rgba: np.ndarray) -> np.ndarray:
+    """Downsample RGBA image by 2x using box filter (average of 2x2 blocks)."""
+    h, w, c = rgba.shape
+    # Reshape to (h//2, 2, w//2, 2, c) and average over axes 1 and 3
+    return rgba.reshape(h // 2, 2, w // 2, 2, c).mean(axis=(1, 3)).astype(np.uint8)
+
+
 def _make_imtexture_ref(tex_id: int) -> Any:
     """
     Wrap a GL texture name into an ImTextureRef expected by imgui.image().
@@ -44,24 +51,52 @@ def _upload_rgba(tex_id: int, rgba: np.ndarray) -> None:
     gl.glTexSubImage2D(gl.GL_TEXTURE_2D, 0, 0, 0, w, h, gl.GL_RGBA, gl.GL_UNSIGNED_BYTE, rgba)
 
 
-def vispy_canvas(gui: Any, state: Any, canvas_id: str, on_init: Callable[[scene.SceneCanvas, scene.widgets.ViewBox], None] | None = None) -> None:
+def vispy_canvas(
+    gui: Any,
+    state: Any,
+    canvas_id: str,
+    on_init: Callable[[scene.SceneCanvas, scene.widgets.ViewBox], None] | None = None,
+    supersample: int = 1,
+) -> None:
     """
     Use inside an ImGui window; the canvas fills the entire content region.
     Exposes the SceneCanvas at gui.canvases[canvas_id].
-    """
-    registry = gui._vispy_canvases
 
+    Parameters
+    ----------
+    gui : GUI
+        The deamat GUI instance.
+    state : GUIState
+        The application state.
+    canvas_id : str
+        Unique identifier for this canvas.
+    on_init : callable, optional
+        Callback invoked once when the canvas is created, receiving
+        (canvas, view) as arguments.
+    supersample : int, default 1
+        Supersampling factor for anti-aliasing. Use 2 for 2x SSAA (smoother
+        edges but higher GPU cost). Must be 1 or 2.
+    """
+    if supersample not in (1, 2):
+        raise ValueError(f"supersample must be 1 or 2, got {supersample}")
+
+    registry = gui._vispy_canvases
     gui_ctx = gui.window  # GLFWwindow holding the main OpenGL context
+
+    # Compute target size from available ImGui region
+    avail = imgui.get_content_region_avail()
+    display_size = (max(1, int(avail.x)), max(1, int(avail.y)))
+    # Render size may be larger for supersampling
+    render_size = (display_size[0] * supersample, display_size[1] * supersample)
 
     # Create on first use
     if canvas_id not in registry:
-        canvas = scene.SceneCanvas(keys="interactive", size=(2, 2), show=False)
+        canvas = scene.SceneCanvas(keys="interactive", size=render_size, show=False)
         view = canvas.central_widget.add_view()
         view.camera = scene.cameras.TurntableCamera()
 
-
         glfw.make_context_current(gui_ctx)
-        tex_id = _create_texture((2, 2))
+        tex_id = _create_texture(display_size)
         tex_ref = _make_imtexture_ref(tex_id)
 
         registry[canvas_id] = {
@@ -69,7 +104,9 @@ def vispy_canvas(gui: Any, state: Any, canvas_id: str, on_init: Callable[[scene.
             "view": view,
             "tex_id": tex_id,
             "tex_ref": tex_ref,
-            "size": (2, 2),
+            "display_size": display_size,
+            "render_size": render_size,
+            "supersample": supersample,
             "inited": False,
         }
         gui.canvases[canvas_id] = canvas
@@ -80,23 +117,26 @@ def vispy_canvas(gui: Any, state: Any, canvas_id: str, on_init: Callable[[scene.
     entry = registry[canvas_id]
     canvas: scene.SceneCanvas = entry["canvas"]
 
-    # Compute target size from available ImGui region
-    avail = imgui.get_content_region_avail()
-    size = (max(1, int(avail.x)), max(1, int(avail.y)))
-
     # Resize VisPy canvas and our GL texture if needed
-    if size != entry["size"]:
-        canvas.size = size
+    needs_resize = (
+        display_size != entry["display_size"] or
+        supersample != entry["supersample"]
+    )
+    if needs_resize:
+        render_size = (display_size[0] * supersample, display_size[1] * supersample)
+        canvas.size = render_size
         glfw.make_context_current(gui_ctx)
         # Create new texture before deleting old one to avoid leak on failure
-        new_tex = _create_texture(size)
+        new_tex = _create_texture(display_size)
         old_tex = entry["tex_id"]
         entry["tex_id"] = new_tex
         entry["tex_ref"] = _make_imtexture_ref(new_tex)
-        entry["size"] = size
+        entry["display_size"] = display_size
+        entry["render_size"] = render_size
+        entry["supersample"] = supersample
         gl.glDeleteTextures([old_tex])
 
-    # Render with VisPy (this may switch to VisPy’s internal context)
+    # Render with VisPy (this may switch to VisPy's internal context)
     frame = canvas.render()  # returns HxWx4 uint8, origin bottom-left
 
     # Ensure we are back on the GUI context before touching GL
@@ -104,13 +144,18 @@ def vispy_canvas(gui: Any, state: Any, canvas_id: str, on_init: Callable[[scene.
 
     # Flip to top-left origin for ImGui
     frame_flipped = np.flipud(frame)
+
+    # Downsample if supersampling is enabled
+    if supersample == 2:
+        frame_flipped = _downsample_2x(frame_flipped)
+
     _upload_rgba(entry["tex_id"], frame_flipped)
 
     # Draw as an ImGui image, filling the window
     # Note: imgui.image requires ImTextureRef and ImVec2
     imgui.image(
         entry["tex_ref"],
-        imgui.ImVec2(float(size[0]), float(size[1])),
+        imgui.ImVec2(float(display_size[0]), float(display_size[1])),
         imgui.ImVec2(0.0, 1.0),
         imgui.ImVec2(1.0, 0.0),
     )

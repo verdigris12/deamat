@@ -31,6 +31,9 @@ class State(GUIState):
         self.spin = False
         self.spin_speed = 30.0  # deg/s about Y
 
+        # anti-aliasing (supersampling)
+        self.ssaa = False
+
     def init_main3d_canvas(self, canvas: scene.SceneCanvas, view: scene.widgets.ViewBox):
         self.view = view
         view.camera = scene.cameras.TurntableCamera(**self.cam)
@@ -84,7 +87,8 @@ def update_ui(state: State, gui: dGUI, dt: float) -> None:
     # 3D view
     imgui.set_next_window_size(imgui.ImVec2(640, 480), cond=imgui.Cond_.once)
     imgui.begin("VisPy example")
-    dw.vispy_canvas(gui, state, "main_3d", on_init=state.init_main3d_canvas)
+    dw.vispy_canvas(gui, state, "main_3d", on_init=state.init_main3d_canvas,
+                    supersample=2 if state.ssaa else 1)
     imgui.end()
 
     # Controls
@@ -100,6 +104,7 @@ def update_ui(state: State, gui: dGUI, dt: float) -> None:
     _, state.box_rot[2] = imgui.slider_float("rot Z (deg)", state.box_rot[2], -180.0, 180.0)
     _, state.spin = imgui.checkbox("spin", state.spin)
     _, state.spin_speed = imgui.drag_float("spin (deg/s)", state.spin_speed, 1.0, 0.0, 720.0)
+    _, state.ssaa = imgui.checkbox("Anti-aliasing (2x SSAA)", state.ssaa)
 
     imgui.separator()
     imgui.text("Camera (Turntable)")
