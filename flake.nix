@@ -1,70 +1,53 @@
 {
   description = "Deamat: imgui+matplotlib boilerplate";
+  inputs.nixpkgs.url = "github:NixOS/nixpkgs/11cb3517b3af6af300dd6c055aeda73c9bf52c48";
 
-  inputs = {
-    nixpkgs.url = "github:NixOS/nixpkgs/11cb3517b3af6af300dd6c055aeda73c9bf52c48";
-    flake-utils.url = "github:numtide/flake-utils";
-  };
+  outputs = { self, nixpkgs }:
+    let
+      systems = [ "x86_64-linux" "aarch64-linux" ];
+      forAll  = f: builtins.listToAttrs (map (s: { name = s; value = f s; }) systems);
+    in {
+      devShells = forAll (system:
+        let
+          pkgs = import nixpkgs { inherit system; };
+          fhs  = pkgs.buildFHSEnvBubblewrap {
+            name = "deamat-fhs";
+            targetPkgs = p: with p; [
+              # Core
+              glibc stdenv.cc.cc.lib zlib
+              python312 uv
+              pkg-config patchelf bashInteractive
 
-  outputs = { self, nixpkgs, flake-utils, ... }:
-    flake-utils.lib.eachDefaultSystem (system:
-      let
-        devshellName = "PYTHON";
+              # Build tools (for packages that need compilation)
+              gcc cmake ninja
 
-        pkgs = import nixpkgs { inherit system; };
+              # OpenGL/Graphics (for imgui, vispy)
+              libGL libGLU mesa
 
-        pythonNative = pkgs.python311.withPackages (ps: [
-          ps.numpy
-          ps.lxml
-          ps.pysocks
-          ps.ipython
-          ps.setuptools
-          ps.wheel
-        ]);
+              # X11 (for GLFW) - includes .dev for headers
+              xorg.libX11 xorg.libX11.dev xorg.xorgproto
+              xorg.libXi xorg.libXrandr xorg.libXext 
+              xorg.libXinerama xorg.libXxf86vm xorg.libXcursor
 
-        nativeTools = with pkgs; [ gcc cmake ninja pkg-config ];
+              # For vispy fonts
+              freetype fontconfig
 
-        # runtime libraries (zlib + OpenSSL + GCC’s libstdc++ + others)
-        # used for building backends
-        nativeLibs = with pkgs; [
-          zlib
-          openssl
-          (pkgs.lib.getLib pkgs.stdenv.cc.cc)
-          # for numpy
-          blas lapack gfortran
-          # For imgui
-          libGL libGLU
-          mesa 
-          xorg.libX11 
-          xorg.libXi 
-          xorg.libXrandr 
-          xorg.libXext 
-          xorg.libXinerama 
-          xorg.libXxf86vm 
-          # For vispy
-          freetype
-          fontconfig
-        ];
-      in {
-        devShells.default = pkgs.mkShell {
-          packages = [ pythonNative pkgs.uv ] ++ nativeTools ++ nativeLibs;
+              # For numpy (if building from source)
+              blas lapack
+            ];
+            runScript = "${pkgs.bashInteractive}/bin/bash";
 
-          LD_LIBRARY_PATH = pkgs.lib.makeLibraryPath nativeLibs;
-
-          shellHook = ''
-          export DEVSHELL=${devshellName}
-          export UV_NO_BINARY=1
-          export UV_NO_BUILD_ISOLATION=1
-
-          if [ ! -d .venv ]; then
-            "${pythonNative}/bin/python" -m venv .venv
-          fi
-          source .venv/bin/activate
-          export UV_PYTHON="$VIRTUAL_ENV/bin/python"
-
-          echo "($(python -V)) venv active → use: uv pip install <pkg>"
-          .venv/bin/pip install --upgrade pip setuptools wheel >/dev/null
-          '';
-        };
-      });
+            profile = ''
+              export DEVSHELL="DEAMAT"
+              if [ ! -d .venv ]; then
+                uv venv
+              fi
+              source .venv/bin/activate
+              echo "($(python -V)) venv active → use: uv pip install <pkg>"
+            '';
+          };
+        in {
+          default = fhs.env;
+        });
+    };
 }
