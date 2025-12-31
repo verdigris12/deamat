@@ -24,6 +24,6 @@ imgui = _imgui
 __all__ = [
     "GUI",
     "GUIState",
-    "widgets"
+    "widgets",
     "imgui"
 ]
