@@ -9,15 +9,104 @@ modify figures in a separate window while the main GUI remains responsive.
 """
 
 import pickle
+from typing import Any
+
+import numpy as np
+import wgpu
 from matplotlib import font_manager
 import matplotlib.colors as mcolors
 from matplotlib.backends.backend_agg import FigureCanvasAgg as FigureCanvasAgg
 
 from imgui_bundle import portable_file_dialogs as pfd
-from imgui_bundle import imgui, imgui_fig
+from imgui_bundle import imgui
 
 from .guistate import GUIState
 from .gui import GUI
+
+
+def _render_mpl_figure_to_rgba(figure: Any) -> np.ndarray:
+    """Render a matplotlib figure to an RGBA numpy array."""
+    figure.canvas.draw()
+    w, h = figure.canvas.get_width_height()
+    buf = np.frombuffer(figure.canvas.buffer_rgba(), dtype=np.uint8)
+    buf = buf.reshape((h, w, 4))
+    return np.ascontiguousarray(buf)
+
+
+def _display_mpl_figure(
+    gui: GUI,
+    fig_id: str,
+    figure: Any,
+    size: tuple[float, float],
+    refresh: bool = False,
+) -> None:
+    """Display a matplotlib figure using wgpu textures.
+    
+    Parameters
+    ----------
+    gui : GUI
+        The deamat GUI instance.
+    fig_id : str
+        Unique identifier for this figure.
+    figure : matplotlib.figure.Figure
+        The matplotlib figure to display.
+    size : tuple[float, float]
+        Display size (width, height) in pixels.
+    refresh : bool
+        Whether to force refresh the texture.
+    """
+    # Initialize registry if needed
+    if not hasattr(gui, '_mpl_view_textures'):
+        gui._mpl_view_textures = {}
+    
+    registry = gui._mpl_view_textures
+    device = gui.renderer.device
+    
+    # Render figure to RGBA
+    rgba = _render_mpl_figure_to_rgba(figure)
+    img_height, img_width = rgba.shape[:2]
+    
+    # Check if we need to create or resize texture
+    needs_create = fig_id not in registry
+    if not needs_create:
+        entry = registry[fig_id]
+        if entry["size"] != (img_width, img_height):
+            gui.gui_renderer.backend.unregister_texture(entry["tex_ref"])
+            entry["texture"].destroy()
+            needs_create = True
+    
+    if needs_create:
+        texture = device.create_texture(
+            label=f"mpl_view_{fig_id}",
+            size=(img_width, img_height, 1),
+            format=wgpu.TextureFormat.rgba8unorm,
+            usage=wgpu.TextureUsage.COPY_DST | wgpu.TextureUsage.TEXTURE_BINDING,
+        )
+        texture_view = texture.create_view()
+        tex_ref = gui.gui_renderer.backend.register_texture(texture_view)
+        
+        registry[fig_id] = {
+            "texture": texture,
+            "texture_view": texture_view,
+            "tex_ref": tex_ref,
+            "size": (img_width, img_height),
+        }
+    
+    entry = registry[fig_id]
+    
+    # Upload image data
+    device.queue.write_texture(
+        destination={"texture": entry["texture"], "origin": (0, 0, 0)},
+        data=rgba,
+        data_layout={"bytes_per_row": img_width * 4, "rows_per_image": img_height},
+        size=(img_width, img_height, 1),
+    )
+    
+    # Display
+    imgui.image(
+        entry["tex_ref"],
+        imgui.ImVec2(float(size[0]), float(size[1])),
+    )
 
 
 class MPLVState(GUIState):
@@ -47,7 +136,6 @@ class MPLView:
         self.gui = GUI(self.state)
         # hook our update method into the GUI
         self.gui.update = lambda state, gui, dt: self.update_ui(state, gui, dt)
-        self.gui.main_window_fullscreen = True
 
         # register the figure so widgets can draw it
         self.gui.state.add_figure(
@@ -475,11 +563,12 @@ class MPLView:
             cur.y + max(0.0, (avail.y - fig_h) * 0.5),
         ))
 
-        imgui_fig.fig(
-            '', state.fig,
+        _display_mpl_figure(
+            gui,
+            'mpl_view_main',
+            state.fig,
             size=(fig_w, fig_h),
-            refresh_image=state.refresh_required,
-            resizable=False,
+            refresh=state.refresh_required,
         )
         state.refresh_required = False
 

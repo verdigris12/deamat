@@ -1,21 +1,40 @@
 from typing import Any, Callable, Coroutine, Optional
 import logging
-import time
-import os
 import asyncio
 import threading
 from concurrent.futures import ProcessPoolExecutor
 import multiprocessing as mp
 
-import glfw                                   # window + input backend (import **before** imgui_bundle)
-from OpenGL import GL as gl                   # raw OpenGL calls
-from imgui_bundle import imgui                # Dear ImGui core
-from imgui_bundle.python_backends.glfw_backend import GlfwRenderer
+from rendercanvas.auto import RenderCanvas, loop
+from wgpu.utils.imgui import ImguiRenderer
+import wgpu
+import pygfx as gfx
+from pygfx.renderers.wgpu.engine.shared import Shared
+from imgui_bundle import imgui
 from matplotlib import pyplot as plt
 
 
+def _configure_pygfx_features() -> None:
+    """Configure pygfx to only request GPU features that are actually available.
+    
+    This must be called before creating any WgpuRenderer, as pygfx creates
+    a global shared device on first use.
+    """
+    if Shared._instance is not None:
+        # Already initialized, nothing to do
+        return
+    
+    # Get available features from the adapter
+    adapter = wgpu.gpu.request_adapter_sync(power_preference="high-performance")
+    available = set(adapter.features)
+    
+    # Filter pygfx's required features to only those available
+    # pygfx defaults to requiring 'float32-filterable' which may not be supported
+    Shared._features = Shared._features & available
+
+
 class GUI:
-    """High‑level GUI manager backed by GLFW."""
+    """High-level GUI manager backed by wgpu and pygfx."""
 
     logger = logging.getLogger(__name__)
 
@@ -23,54 +42,46 @@ class GUI:
     # Construction / initialisation
     # ------------------------------------------------------------------
     def __init__(self, state: Any, *, width: int = 1280, height: int = 720) -> None:
-        # ‑‑ GLFW init ‑‑ ------------------------------------------------
-        if not glfw.init():
-            raise RuntimeError("Could not initialise GLFW; check DISPLAY / drivers")
- 
-        glfw.window_hint(glfw.CONTEXT_VERSION_MAJOR, 3)
-        glfw.window_hint(glfw.CONTEXT_VERSION_MINOR, 3)
-        glfw.window_hint(glfw.OPENGL_PROFILE, glfw.OPENGL_COMPAT_PROFILE)  # VisPy/gloo needs a compat profile (not core)
-        glfw.window_hint(glfw.RESIZABLE, glfw.TRUE)
-
-        self.window: glfw._GLFWwindow | None = glfw.create_window(
-            width, height, "deamat", None, None
+        # Configure pygfx to only request available GPU features
+        _configure_pygfx_features()
+        
+        # -- wgpu canvas --
+        self.canvas = RenderCanvas(
+            size=(width, height),
+            title="deamat",
+            update_mode="continuous",
         )
-        if self.window is None:
-            glfw.terminate()
-            raise RuntimeError("Failed to create GLFW window")
-        glfw.make_context_current(self.window)
-        glfw.swap_interval(1)  # V‑sync
 
-        # ‑‑ ImGui -------------------------------------------------------
-        self.ctx: imgui.Context = imgui.create_context()
-        self.impl = GlfwRenderer(self.window)
+        # -- pygfx renderer --
+        self.renderer = gfx.WgpuRenderer(self.canvas)
+
+        # -- ImGui renderer (uses same wgpu device) --
+        self.gui_renderer = ImguiRenderer(self.renderer.device, self.canvas)
 
         self._io = imgui.get_io()
-        self._io.config_flags |= (
-            imgui.ConfigFlags_.docking_enable | imgui.ConfigFlags_.viewports_enable
-        )
+        self._io.config_flags |= imgui.ConfigFlags_.docking_enable
 
-        # ‑‑ Runtime state ----------------------------------------------
+        # -- Runtime state --
         self.state: Any = state
         self.fps: float = 60.0
         self.update: Optional[Callable[[Any, "GUI", float], None]] = None
 
-        # Public/Private canvas registries for widgets
-        self.canvases: dict[str, Any] = {}
-        self._vispy_canvases: dict[str, Any] = {}
+        # Public/Private scene registries for widgets
+        self.scenes: dict[str, Any] = {}
+        self._pygfx_scenes: dict[str, Any] = {}
 
-        # ‑‑ asyncio helper thread --------------------------------------
+        # -- Clock for delta time --
+        self._clock = gfx.Clock()
+
+        # -- asyncio helper thread --
         self.asyncio_loop: asyncio.AbstractEventLoop = asyncio.new_event_loop()
         asyncio.set_event_loop(self.asyncio_loop)
         self.asyncio_thread = threading.Thread(target=self.asyncio_loop.run_forever, daemon=True)
 
-        # ‑‑ Process pool ----------------------------------------------
+        # -- Process pool --
         self.executor = ProcessPoolExecutor(mp_context=mp.get_context("spawn"))
         self.job_mutex: mp.Lock = mp.Lock()
         self.job_counter: int = 0
-
-        # ‑‑ GL clear colour -------------------------------------------
-        gl.glClearColor(0.0, 0.0, 0.0, 1.0)
 
     # ------------------------------------------------------------------
     # Helpers
@@ -98,7 +109,7 @@ class GUI:
         imgui.pop_style_var(2)
 
     # ------------------------------------------------------------------
-    # Per‑frame handlers
+    # Per-frame handlers
     # ------------------------------------------------------------------
     def _drain_sync_queue(self) -> None:
         """Process pending state synchronization callbacks from async coroutines."""
@@ -108,19 +119,6 @@ class GUI:
                 merge_fn()
             except Exception:
                 self.logger.error("Exception in sync queue merge function", exc_info=True)
-    
-    def _update_ui(self, dt: float) -> None:
-        # Process any pending state updates from async coroutines
-        self._drain_sync_queue()
-        
-        self.impl.process_inputs()
-        imgui.new_frame()
-        self.state.update_window(self.window)  # type: ignore[arg-type]
-        self._create_main_window()
-        with self.job_mutex:
-            if self.update is not None:
-                self.update(self.state, self, dt)
-        imgui.end()
 
     def _update_figures(self) -> None:
         plt.style.use(self.state.plt_style)
@@ -134,6 +132,29 @@ class GUI:
                 fig.set_figwidth(f["width"] / 100)
                 fig.set_figheight(f["height"] / 100)
                 f["figure"] = fig
+
+    def _draw_imgui(self) -> None:
+        """Called by ImguiRenderer to build the imgui frame."""
+        dt = self._clock.get_delta()
+
+        # Process any pending state updates from async coroutines
+        self._drain_sync_queue()
+
+        # Update window dimensions in state
+        self.state.update_window(self.canvas)
+
+        # Update figures (matplotlib)
+        self._update_figures()
+
+        # Create main docking window
+        self._create_main_window()
+
+        # Call user update callback
+        with self.job_mutex:
+            if self.update is not None:
+                self.update(self.state, self, dt)
+
+        imgui.end()
 
     # ------------------------------------------------------------------
     # Public helpers
@@ -172,54 +193,30 @@ class GUI:
     # Main loop
     # ------------------------------------------------------------------
     def run(self) -> None:
-        if self.window is None:
-            raise RuntimeError("GUI has no valid window")
+        # Update window dimensions initially
+        self.state.update_window(self.canvas)
 
-        self.state.update_window(self.window)  # type: ignore[arg-type]
-        # If subclasses need GL objects, they can override gl_init
+        # If subclasses need initialization, they can override gl_init
         if hasattr(self.state, "gl_init"):
             try:
-                self.state.gl_init(self.window, None)  # type: ignore[arg-type]
+                self.state.gl_init(self.canvas, self.renderer)
             except TypeError:
                 # Backward-compat: some implementations take just (window)
-                self.state.gl_init(self.window)  # type: ignore[misc]
+                self.state.gl_init(self.canvas)
 
         self.asyncio_thread.start()
 
-        last_time: float = time.perf_counter()
-        frame_dur: float = 1.0 / self.fps
+        # Set up the imgui draw function
+        self.gui_renderer.set_gui(self._draw_imgui)
 
-        while not glfw.window_should_close(self.window):
-            now = time.perf_counter()
-            dt = now - last_time
-            last_time = now
+        def animate():
+            # Render imgui (this calls _draw_imgui internally)
+            self.gui_renderer.render()
+            self.canvas.request_draw()
 
-            # ‑‑ per‑frame processing ‑‑
-            self._update_figures()
-            self._update_ui(dt)
+        self.renderer.request_draw(animate)
+        loop.run()
 
-            # ‑‑ rendering ‑‑
-            fb_width, fb_height = glfw.get_framebuffer_size(self.window)
-            gl.glViewport(0, 0, fb_width, fb_height)
-            gl.glClear(gl.GL_COLOR_BUFFER_BIT)
-
-            imgui.render()
-            self.impl.render(imgui.get_draw_data())
-
-            if self._io.config_flags & imgui.ConfigFlags_.viewports_enable:
-                imgui.update_platform_windows()
-                imgui.render_platform_windows_default()
-                glfw.make_context_current(self.window)
-
-            glfw.swap_buffers(self.window)
-            glfw.poll_events()
-
-            elapsed = time.perf_counter() - now
-            if elapsed < frame_dur:
-                time.sleep(frame_dur - elapsed)
-
-        # ‑‑ shutdown ‑‑
+        # -- shutdown --
         self.asyncio_loop.call_soon_threadsafe(self.asyncio_loop.stop)
         self.executor.shutdown(wait=False)
-        self.impl.shutdown()
-        glfw.terminate()

@@ -10,8 +10,8 @@ helpers to invalidate figures when state changes.
 from __future__ import annotations
 
 import queue
+from typing import Any
 
-import glfw
 from matplotlib import pyplot as plt
 
 from .sync import SyncContext
@@ -157,5 +157,18 @@ class GUIState:
     def data_loaded(self) -> bool:
         return getattr(self, 'data', None) is not None
 
-    def update_window(self, window: glfw._GLFWwindow) -> None:
-        self.window['width'], self.window['height'] = glfw.get_window_size(window) 
+    def update_window(self, canvas: Any) -> None:
+        """Update window dimensions from the canvas.
+        
+        Parameters
+        ----------
+        canvas : RenderCanvas
+            The wgpu render canvas.
+        """
+        try:
+            size = canvas.get_logical_size()
+            self.window['width'] = size[0]
+            self.window['height'] = size[1]
+        except (AttributeError, TypeError):
+            # Fallback for different canvas implementations
+            pass 

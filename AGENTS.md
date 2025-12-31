@@ -4,10 +4,10 @@
 
 **Deamat** is a Python GUI scaffolding library (v0.2.0) for building interactive scientific visualization applications. It combines:
 
-- **imgui_bundle** (with GLFW backend) for immediate-mode GUI
-- **GLFW** for window management
+- **imgui_bundle** with wgpu-based ImGui rendering
+- **wgpu/rendercanvas** for window management and GPU access
+- **pygfx** for 3D visualization (zerocopy texture sharing with imgui)
 - **matplotlib** for 2D plotting
-- **VisPy** for 3D visualization
 
 ## Architecture
 
@@ -15,14 +15,14 @@
 deamat/
 ├── __init__.py          # Package entry, re-exports core classes, widgets, and imgui
 ├── __main__.py          # CLI entry point (deamat-demo)
-├── gui.py               # Main GUI class with GLFW/ImGui event loop
+├── gui.py               # Main GUI class with wgpu/pygfx/ImGui integration
 ├── guistate.py          # State container base class with figure registry
 ├── mpl_view.py          # Standalone matplotlib figure viewer (CLI: mplview)
 ├── sync.py              # Thread-safe state synchronization (SyncContext)
 └── widgets/
-    ├── __init__.py      # Widget exports (figure, vispy_canvas)
+    ├── __init__.py      # Widget exports (figure, pygfx_canvas)
     ├── figure.py        # Matplotlib figure embedding
-    └── vispy_canvas.py  # VisPy 3D canvas widget
+    └── pygfx_canvas.py  # pygfx 3D canvas widget (zerocopy)
 ```
 
 ## CLI Tools
@@ -34,9 +34,11 @@ deamat/
 
 ### GUI (`gui.py`)
 Central application manager:
-- Creates/manages GLFW window with OpenGL 3.3
-- Initializes Dear ImGui with docking/multi-viewport support
-- Runs 60 FPS render loop with delta time tracking
+- Creates/manages `RenderCanvas` via wgpu/rendercanvas
+- Uses `gfx.WgpuRenderer` for pygfx rendering
+- Uses `ImguiRenderer` from `wgpu.utils.imgui` for imgui integration
+- Initializes Dear ImGui with docking support
+- Runs continuous render loop with delta time via `gfx.Clock`
 - Provides async support via background asyncio thread
 - Provides `ProcessPoolExecutor` for CPU-bound jobs
 - Manages figure caching and updates
@@ -58,7 +60,7 @@ Async context manager for thread-safe state mutation from background threads usi
 
 ### Widgets (`widgets/`)
 - `figure()`: Embeds matplotlib figures into ImGui windows
-- `vispy_canvas()`: Renders VisPy SceneCanvas into ImGui via texture upload
+- `pygfx_canvas()`: Renders pygfx Scene into ImGui via zerocopy texture sharing
 
 ### MPLView (`mpl_view.py`)
 Standalone matplotlib figure viewer with interactive editing, styling controls, and export capabilities. Can be invoked via CLI (`mplview`) or programmatically.
@@ -76,8 +78,8 @@ Standalone matplotlib figure viewer with interactive editing, styling controls, 
 ## Dependencies
 
 - imgui_bundle (>=1.5.2), imgui (>=2.0.0)
-- GLFW (>=2.7.0), PyOpenGL (>=3.1.7)
-- matplotlib (>=3.9.2), VisPy (>=0.15.2)
+- pygfx (>=0.6.0), wgpu (>=0.18.0), rendercanvas (>=1.0.0)
+- matplotlib (>=3.9.2)
 - numpy (>=2.0.1), pydantic (>=2.8.2)
 - Python >=3.11
 
@@ -88,7 +90,7 @@ Located in `examples/`:
 2. `2-ui_update.py` - UI widgets and state updates
 3. `3-matplotlib.py` - Matplotlib figure integration
 4. `4-async_update.py` - Async operations (see note about `sync()` for thread safety)
-5. `5-vispy.py`, `6-vispy_more.py` - VisPy 3D visualization
+5. `5-pygfx.py`, `6-pygfx_more.py` - pygfx 3D visualization
 6. `7-sync_context.py` - Thread-safe state synchronization
 
 ## Tests
