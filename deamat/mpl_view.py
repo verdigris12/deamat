@@ -59,18 +59,6 @@ class MPLView:
         )
 
 
-    def _figure_view_ui(self) -> None:
-        state = self.state
-        figure = state.fig
-
-        if imgui.is_mouse_clicked(imgui.MOUSE_BUTTON_LEFT):
-            mouse_x, mouse_y = imgui.get_mouse_pos()
-            ax = figure.gca()
-            if ax.bbox.contains(mouse_x, mouse_y):
-                self.state.fig_x, self.state.fig_y = ax.transData.inverted().transform(
-                    (mouse_x, mouse_y)
-                )
-
     def _sidebar_ui(self, state: MPLVState) -> None:
         # apply button placeholder – refresh the figure when pressed
         if imgui.button("Apply Changes"):
