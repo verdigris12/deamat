@@ -34,15 +34,21 @@ class State(GUIState):
         # anti-aliasing (supersampling)
         self.ssaa = False
 
+        # shading mode
+        self.shading_modes = ['flat', 'smooth', None]
+        self.shading_labels = ['Flat', 'Smooth', 'None']
+        self.shading_idx = 0  # default to flat
+        self._last_shading_idx = self.shading_idx
+
     def init_main3d_canvas(self, canvas: scene.SceneCanvas, view: scene.widgets.ViewBox):
         self.view = view
         view.camera = scene.cameras.TurntableCamera(**self.cam)
 
         # BoxVisual is a compound visual; its drawable MeshVisual is at .mesh
         self.box = scene.visuals.Box(width=2.0, height=2.0, depth=2.0, color=self.box_color)
-        # use flat shading for proper matte appearance on cube faces
+        # set initial shading mode
         if hasattr(self.box.mesh, "shading"):
-            self.box.mesh.shading = "flat"
+            self.box.mesh.shading = self.shading_modes[self.shading_idx]
         self.box.transform = self._xf
         view.add(self.box)
 
@@ -71,6 +77,12 @@ class State(GUIState):
             except Exception:
                 self.box.mesh.set_data(color=self.box_color)
             self._last_color = self.box_color
+
+        # shading mode
+        if self.shading_idx != self._last_shading_idx:
+            if hasattr(self.box.mesh, "shading"):
+                self.box.mesh.shading = self.shading_modes[self.shading_idx]
+            self._last_shading_idx = self.shading_idx
 
         # camera (write only what changed)
         cam = self.view.camera
@@ -112,6 +124,10 @@ def update_ui(state: State, gui: dGUI, dt: float) -> None:
     _, state.cam["elevation"] = imgui.slider_float("elevation", state.cam["elevation"], -89.9, 89.9)
     _, state.cam["azimuth"]   = imgui.slider_float("azimuth", state.cam["azimuth"], -180.0, 180.0)
     _, state.cam["fov"]       = imgui.slider_float("fov", state.cam["fov"], 15.0, 120.0)
+
+    imgui.separator()
+    imgui.text("Shading")
+    changed, state.shading_idx = imgui.combo("Shading Mode", state.shading_idx, state.shading_labels)
 
     imgui.separator()
     imgui.text("box color")
