@@ -54,7 +54,6 @@ class GUI:
         self.state: Any = state
         self.fps: float = 60.0
         self.update: Optional[Callable[[Any, "GUI", float], None]] = None
-        self.update_async: Optional[Callable[[Any, "GUI", float], Coroutine[Any, Any, None]]] = None
 
         # Public/Private canvas registries for widgets
         self.canvases: dict[str, Any] = {}
@@ -70,18 +69,12 @@ class GUI:
         self.job_mutex: mp.Lock = mp.Lock()
         self.job_counter: int = 0
 
-        # ‑‑ Matplotlib figure cache ------------------------------------
-        self._init_matplotlib()
-
         # ‑‑ GL clear colour -------------------------------------------
         gl.glClearColor(0.0, 0.0, 0.0, 1.0)
 
     # ------------------------------------------------------------------
     # Helpers
     # ------------------------------------------------------------------
-    def _init_matplotlib(self) -> None:
-        pass
-
     def _create_main_window(self) -> None:
         mv = imgui.get_main_viewport()
         imgui.set_next_window_pos((mv.pos.x, mv.pos.y))

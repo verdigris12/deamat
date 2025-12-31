@@ -113,7 +113,21 @@ class GUIState:
 
         The ``figfunc`` should be a callable that accepts the state and returns
         a :class:`matplotlib.figure.Figure`.
+        
+        Raises
+        ------
+        TypeError
+            If ``figfunc`` is not callable.
+        ValueError
+            If ``height`` or ``width`` is negative.
         """
+        if not callable(figfunc):
+            raise TypeError(f"figfunc must be callable, got {type(figfunc).__name__}")
+        if height < 0:
+            raise ValueError(f"height must be non-negative, got {height}")
+        if width < 0:
+            raise ValueError(f"width must be non-negative, got {width}")
+        
         self.figures[figname] = {
             'figure': plt.figure(), # MPL figure object
             'dirty': True,          # Figure update requested

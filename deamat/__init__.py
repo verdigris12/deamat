@@ -16,6 +16,7 @@ from imgui_bundle import imgui as _imgui
 
 from .gui import GUI
 from .guistate import GUIState
+from . import widgets
 
 # Re-export imgui so that examples and users can rely on the same implementation
 imgui = _imgui

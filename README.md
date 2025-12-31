@@ -18,7 +18,7 @@ uv pip install "deamat @ git+https://github.com/verdigris12/deamat"
 
 * `deamat.gui.GUI`: the app window and loop. Set `gui.update = your_update_fn`.
 * `deamat.guistate.GUIState`: your mutable state holder; includes figure registry.
-* `deamat.widgets.im_plot_figure(state, name, ...)`: ImGUI widget for displaying matplotlib figures
+* `deamat.widgets.figure(state, name, ...)`: ImGUI widget for displaying matplotlib figures
 * `from deamat import imgui`: Deamat re-exports `imgui` from `imgui_bundle`. Don’t import `imgui_bundle.imgui` directly in examples or apps.
 
 ---
