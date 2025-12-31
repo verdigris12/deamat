@@ -5,6 +5,7 @@ from deamat import imgui
 from deamat import widgets as dw
 from vispy import scene
 from vispy.visuals.transforms import MatrixTransform
+from vispy.visuals.filters import ShadingFilter
 
 
 class State(GUIState):
@@ -34,11 +35,16 @@ class State(GUIState):
         # anti-aliasing (supersampling)
         self.ssaa = False
 
-        # shading mode
+        # shading mode (via ShadingFilter)
+        self.shading_filter: ShadingFilter | None = None
         self.shading_modes = ['flat', 'smooth', None]
         self.shading_labels = ['Flat', 'Smooth', 'None']
         self.shading_idx = 0  # default to flat
         self._last_shading_idx = self.shading_idx
+
+        # material properties
+        self.shininess = 100.0
+        self._last_shininess = self.shininess
 
     def init_main3d_canvas(self, canvas: scene.SceneCanvas, view: scene.widgets.ViewBox):
         self.view = view
@@ -46,9 +52,14 @@ class State(GUIState):
 
         # BoxVisual is a compound visual; its drawable MeshVisual is at .mesh
         self.box = scene.visuals.Box(width=2.0, height=2.0, depth=2.0, color=self.box_color)
-        # set initial shading mode
-        if hasattr(self.box.mesh, "shading"):
-            self.box.mesh.shading = self.shading_modes[self.shading_idx]
+
+        # Attach ShadingFilter for proper lighting control
+        self.shading_filter = ShadingFilter(
+            shading=self.shading_modes[self.shading_idx],
+            shininess=self.shininess
+        )
+        self.box.mesh.attach(self.shading_filter)
+
         self.box.transform = self._xf
         view.add(self.box)
 
@@ -78,11 +89,14 @@ class State(GUIState):
                 self.box.mesh.set_data(color=self.box_color)
             self._last_color = self.box_color
 
-        # shading mode
-        if self.shading_idx != self._last_shading_idx:
-            if hasattr(self.box.mesh, "shading"):
-                self.box.mesh.shading = self.shading_modes[self.shading_idx]
-            self._last_shading_idx = self.shading_idx
+        # shading mode and shininess via ShadingFilter
+        if self.shading_filter is not None:
+            if self.shading_idx != self._last_shading_idx:
+                self.shading_filter.shading = self.shading_modes[self.shading_idx]
+                self._last_shading_idx = self.shading_idx
+            if self.shininess != self._last_shininess:
+                self.shading_filter.shininess = self.shininess
+                self._last_shininess = self.shininess
 
         # camera (write only what changed)
         cam = self.view.camera
@@ -128,6 +142,7 @@ def update_ui(state: State, gui: dGUI, dt: float) -> None:
     imgui.separator()
     imgui.text("Shading")
     changed, state.shading_idx = imgui.combo("Shading Mode", state.shading_idx, state.shading_labels)
+    _, state.shininess = imgui.slider_float("Shininess", state.shininess, 1.0, 500.0)
 
     imgui.separator()
     imgui.text("box color")
