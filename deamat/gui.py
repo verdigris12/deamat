@@ -222,5 +222,7 @@ class GUI:
                 time.sleep(frame_dur - elapsed)
 
         # ‑‑ shutdown ‑‑
+        self.asyncio_loop.call_soon_threadsafe(self.asyncio_loop.stop)
+        self.executor.shutdown(wait=False)
         self.impl.shutdown()
         glfw.terminate()
