@@ -156,20 +156,21 @@ class GUI:
             self.job_counter += 1
             self.state.statusline = f"Executing {self.job_counter} tasks…"
 
-        if callback is not None:
-
-            def _cb(fut):
-                try:
-                    result = fut.result()
-                finally:
-                    with self.job_mutex:
-                        self.job_counter -= 1
-                        self.state.statusline = (
-                            "Ready" if self.job_counter == 0 else f"Executing {self.job_counter} tasks…"
-                        )
+        def _cb(fut):
+            with self.job_mutex:
+                self.job_counter -= 1
+                self.state.statusline = (
+                    "Ready" if self.job_counter == 0 else f"Executing {self.job_counter} tasks…"
+                )
+            try:
+                result = fut.result()
+            except Exception:
+                self.logger.error("Exception in submitted job", exc_info=True)
+                return
+            if callback is not None:
                 callback(result)
 
-            future.add_done_callback(_cb)
+        future.add_done_callback(_cb)
 
     def exec_coroutine(self, co: Coroutine[Any, Any, Any]) -> None:
         asyncio.run_coroutine_threadsafe(co, self.asyncio_loop)
