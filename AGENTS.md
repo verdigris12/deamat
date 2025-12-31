@@ -7,7 +7,8 @@
 - **imgui_bundle** (with GLFW backend) for immediate-mode GUI
 - **GLFW** for window management
 - **matplotlib** for 2D plotting
-- **VisPy** for 3D visualization
+- **VisPy** for 3D visualization (OpenGL-based)
+- **pygfx** for 3D visualization (WebGPU/wgpu-based, three.js-style API)
 
 ## Architecture
 
@@ -20,9 +21,10 @@ deamat/
 ├── mpl_view.py          # Standalone matplotlib figure viewer (CLI: mplview)
 ├── sync.py              # Thread-safe state synchronization (SyncContext)
 └── widgets/
-    ├── __init__.py      # Widget exports (figure, vispy_canvas)
+    ├── __init__.py      # Widget exports (figure, vispy_canvas, pygfx_canvas)
     ├── figure.py        # Matplotlib figure embedding
-    └── vispy_canvas.py  # VisPy 3D canvas widget
+    ├── vispy_canvas.py  # VisPy 3D canvas widget
+    └── pygfx_canvas.py  # pygfx 3D canvas widget (WebGPU-based)
 ```
 
 ## CLI Tools
@@ -59,6 +61,7 @@ Async context manager for thread-safe state mutation from background threads usi
 ### Widgets (`widgets/`)
 - `figure()`: Embeds matplotlib figures into ImGui windows
 - `vispy_canvas()`: Renders VisPy SceneCanvas into ImGui via texture upload
+- `pygfx_canvas()`: Renders pygfx Scene into ImGui via texture upload (WebGPU-based, three.js-style API)
 
 ### MPLView (`mpl_view.py`)
 Standalone matplotlib figure viewer with interactive editing, styling controls, and export capabilities. Can be invoked via CLI (`mplview`) or programmatically.
@@ -78,6 +81,7 @@ Standalone matplotlib figure viewer with interactive editing, styling controls, 
 - imgui_bundle (>=1.5.2), imgui (>=2.0.0)
 - GLFW (>=2.7.0), PyOpenGL (>=3.1.7)
 - matplotlib (>=3.9.2), VisPy (>=0.15.2)
+- pygfx (>=0.15.0), wgpu (>=0.19.0), rendercanvas (>=2.5.0)
 - numpy (>=2.0.1), pydantic (>=2.8.2)
 - Python >=3.11
 
@@ -90,6 +94,7 @@ Located in `examples/`:
 4. `4-async_update.py` - Async operations (see note about `sync()` for thread safety)
 5. `5-vispy.py`, `6-vispy_more.py` - VisPy 3D visualization
 6. `7-sync_context.py` - Thread-safe state synchronization
+7. `8-pygfx.py`, `9-pygfx_more.py` - pygfx 3D visualization (WebGPU-based)
 
 ## Tests
 
@@ -101,3 +106,15 @@ Located in `examples/`:
 - Package managed via `pyproject.toml` with uv
 - ImGui is re-exported from `deamat` to ensure version consistency
 - Multiprocessing uses 'spawn' method (set at module load in `widgets/figure.py`)
+
+## Known Issues
+
+### pygfx/wgpu EGL Conflict
+
+On systems where wgpu only has the OpenGL/EGL backend available (no Vulkan), there is a
+conflict between wgpu's EGL context and GLFW's OpenGL context. This causes crashes when
+using `pygfx_canvas` on some Intel integrated GPUs (e.g., Intel UHD 620 with Mesa).
+
+**Workaround**: Use `vispy_canvas` instead on affected systems, or ensure Vulkan drivers
+are installed. Systems with discrete GPUs (NVIDIA, AMD) or Vulkan-capable integrated GPUs
+typically work fine.

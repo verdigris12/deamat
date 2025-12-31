@@ -56,8 +56,10 @@ class GUI:
         self.update: Optional[Callable[[Any, "GUI", float], None]] = None
 
         # Public/Private canvas registries for widgets
-        self.canvases: dict[str, Any] = {}
-        self._vispy_canvases: dict[str, Any] = {}
+        self.canvases: dict[str, Any] = {}  # VisPy canvases (public)
+        self._vispy_canvases: dict[str, Any] = {}  # VisPy internal registry
+        self.pygfx_scenes: dict[str, Any] = {}  # pygfx scenes (public)
+        self._pygfx_canvases: dict[str, Any] = {}  # pygfx internal registry
 
         # ‑‑ asyncio helper thread --------------------------------------
         self.asyncio_loop: asyncio.AbstractEventLoop = asyncio.new_event_loop()

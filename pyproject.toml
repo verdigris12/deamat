@@ -41,6 +41,9 @@ dependencies = [
     "typing_extensions>=4.12.2",
     "xxhash>=3.4.1",
     "vispy>=0.15.2",
+    "pygfx>=0.15.0",
+    "wgpu>=0.19.0",
+    "rendercanvas>=2.5.0",
     "ipython>=9.8.0",
     "pytest>=9.0.2",
 ]
