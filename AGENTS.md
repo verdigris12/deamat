@@ -13,17 +13,22 @@
 
 ```
 deamat/
-├── __init__.py          # Package entry, re-exports core classes and imgui
+├── __init__.py          # Package entry, re-exports core classes, widgets, and imgui
 ├── __main__.py          # CLI entry point (deamat-demo)
 ├── gui.py               # Main GUI class with GLFW/ImGui event loop
 ├── guistate.py          # State container base class with figure registry
-├── mpl_view.py          # Standalone matplotlib figure viewer
+├── mpl_view.py          # Standalone matplotlib figure viewer (CLI: mplview)
 ├── sync.py              # Thread-safe state synchronization (SyncContext)
 └── widgets/
-    ├── __init__.py      # Widget exports
-    ├── figure.py        # Matplotlib figure embedding (im_plot_figure)
+    ├── __init__.py      # Widget exports (figure, vispy_canvas)
+    ├── figure.py        # Matplotlib figure embedding
     └── vispy_canvas.py  # VisPy 3D canvas widget
 ```
+
+## CLI Tools
+
+- `deamat-demo` - Placeholder entry point with usage instructions
+- `mplview <figure.pkl>` - Standalone viewer for pickled matplotlib figures
 
 ## Core Components
 
@@ -35,13 +40,14 @@ Central application manager:
 - Provides async support via background asyncio thread
 - Provides `ProcessPoolExecutor` for CPU-bound jobs
 - Manages figure caching and updates
+- Logs errors via module-level logger
 
 Key methods: `run()`, `submit_job()`, `exec_coroutine()`
 
 ### GUIState (`guistate.py`)
 Base class for application state:
 - Window dimension tracking
-- Figure registry (dict-based)
+- Figure registry (dict-based) with input validation
 - Matplotlib style configuration
 - Thread-safe sync queue
 
@@ -51,11 +57,11 @@ Key methods: `add_figure()`, `invalidate_figure()`, `invalidate_all_figures()`, 
 Async context manager for thread-safe state mutation from background threads using deep-copy/merge pattern.
 
 ### Widgets (`widgets/`)
-- `im_plot_figure()`: Embeds matplotlib figures into ImGui windows
+- `figure()`: Embeds matplotlib figures into ImGui windows
 - `vispy_canvas()`: Renders VisPy SceneCanvas into ImGui via texture upload
 
 ### MPLView (`mpl_view.py`)
-Standalone matplotlib figure viewer with interactive editing, styling controls, and export capabilities.
+Standalone matplotlib figure viewer with interactive editing, styling controls, and export capabilities. Can be invoked via CLI (`mplview`) or programmatically.
 
 ## Key Patterns
 
@@ -81,7 +87,7 @@ Located in `examples/`:
 1. `1-basic.py` - Basic window creation
 2. `2-ui_update.py` - UI widgets and state updates
 3. `3-matplotlib.py` - Matplotlib figure integration
-4. `4-async_update.py` - Async operations
+4. `4-async_update.py` - Async operations (see note about `sync()` for thread safety)
 5. `5-vispy.py`, `6-vispy_more.py` - VisPy 3D visualization
 6. `7-sync_context.py` - Thread-safe state synchronization
 
@@ -94,3 +100,4 @@ Located in `examples/`:
 - Uses Nix flake for development environment (see `flake.nix`)
 - Package managed via `pyproject.toml` with uv
 - ImGui is re-exported from `deamat` to ensure version consistency
+- Multiprocessing uses 'spawn' method (set at module load in `widgets/figure.py`)
