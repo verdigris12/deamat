@@ -498,3 +498,46 @@ class MPLView:
         self._sidebar_ui(state)
         imgui.end()
 
+
+def main() -> None:
+    """CLI entry point for viewing pickled matplotlib figures."""
+    import argparse
+    import sys
+    from matplotlib.figure import Figure
+
+    parser = argparse.ArgumentParser(
+        prog="mplview",
+        description="View and edit a pickled matplotlib figure"
+    )
+    parser.add_argument("figure", help="Path to pickled figure (.pkl)")
+    args = parser.parse_args()
+
+    # Check file exists
+    import os
+    if not os.path.isfile(args.figure):
+        print(f"Error: File not found: {args.figure}", file=sys.stderr)
+        sys.exit(1)
+
+    # Load and validate pickle
+    try:
+        with open(args.figure, 'rb') as f:
+            fig = pickle.load(f)
+    except pickle.UnpicklingError as e:
+        print(f"Error: Invalid pickle file: {e}", file=sys.stderr)
+        sys.exit(1)
+    except Exception as e:
+        print(f"Error: Failed to load file: {e}", file=sys.stderr)
+        sys.exit(1)
+
+    # Validate it's a matplotlib Figure
+    if not isinstance(fig, Figure):
+        print(f"Error: Pickle does not contain a matplotlib Figure (got {type(fig).__name__})", file=sys.stderr)
+        sys.exit(1)
+
+    viewer = MPLView(fig)
+    viewer.run()
+
+
+if __name__ == "__main__":
+    main()
+

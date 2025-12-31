@@ -59,6 +59,7 @@ classifiers = [
 
 [project.scripts]
 deamat-demo = "deamat.__main__:main"
+mplview = "deamat.mpl_view:main"
 
 [tool.setuptools.packages]
 find = {}
