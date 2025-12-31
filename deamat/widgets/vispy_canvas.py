@@ -88,11 +88,13 @@ def vispy_canvas(gui: Any, state: Any, canvas_id: str, on_init: Callable[[scene.
     if size != entry["size"]:
         canvas.size = size
         glfw.make_context_current(gui_ctx)
-        gl.glDeleteTextures([entry["tex_id"]])
+        # Create new texture before deleting old one to avoid leak on failure
         new_tex = _create_texture(size)
+        old_tex = entry["tex_id"]
         entry["tex_id"] = new_tex
         entry["tex_ref"] = _make_imtexture_ref(new_tex)
         entry["size"] = size
+        gl.glDeleteTextures([old_tex])
 
     # Render with VisPy (this may switch to VisPy’s internal context)
     frame = canvas.render()  # returns HxWx4 uint8, origin bottom-left
