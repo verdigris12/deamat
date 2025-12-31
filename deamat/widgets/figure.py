@@ -13,6 +13,12 @@ import pickle
 
 from deamat.mpl_view import MPLView
 
+# Set spawn method once at module load to avoid issues on macOS with forking
+try:
+    multiprocessing.set_start_method('spawn')
+except RuntimeError:
+    pass  # Already set
+
 
 def open_figure_in_pyplot(pickled_figure: bytes) -> None:
     """Spawn a new process to view a pickled figure using MPLView."""
@@ -55,8 +61,6 @@ def im_plot_figure(state, figname: str, width: int | None = None, height: int | 
 
     if imgui.button('Open in viewer'):
         pickled_figure = pickle.dumps(figure)
-        # Ensure the new process is spawned instead of forked to avoid issues on MacOS
-        multiprocessing.set_start_method(method='spawn', force=True)
         p = multiprocessing.Process(target=open_figure_in_pyplot, args=(pickled_figure,))
         p.start()
 
