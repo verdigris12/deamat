@@ -139,8 +139,12 @@ class MPLView:
         font_weights = ['ultralight', 'light', 'normal', 'regular', 'book', 'medium',
                         'roman', 'semibold', 'demibold', 'demi', 'bold', 'heavy',
                         'extra bold', 'black']
+        try:
+            fw_index = font_weights.index(mpltext_fontweight)
+        except ValueError:
+            fw_index = 2  # default to 'normal'
         changed, fw_selection = imgui.combo(
-            "Font Weight", font_weights.index(mpltext_fontweight), font_weights
+            "Font Weight", fw_index, font_weights
         )
         if changed:
             mpltext_fontweight = font_weights[fw_selection]
