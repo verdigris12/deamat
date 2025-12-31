@@ -3,6 +3,10 @@
 """
 Example: perform an asynchronous update in response to a button press.  The
 button increments a counter after a short delay without blocking the UI.
+
+NOTE: This example directly mutates state from an async coroutine for simplicity.
+For thread-safe state updates in production code, use the sync() context manager
+as demonstrated in examples/7-sync_context.py.
 """
 
 import asyncio
