@@ -40,9 +40,9 @@ class State(GUIState):
 
         # BoxVisual is a compound visual; its drawable MeshVisual is at .mesh
         self.box = scene.visuals.Box(width=2.0, height=2.0, depth=2.0, color=self.box_color)
-        # prefer smooth shading if property exists
+        # use flat shading for proper matte appearance on cube faces
         if hasattr(self.box.mesh, "shading"):
-            self.box.mesh.shading = "smooth"
+            self.box.mesh.shading = "flat"
         self.box.transform = self._xf
         view.add(self.box)
 
