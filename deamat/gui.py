@@ -5,6 +5,7 @@ import threading
 from concurrent.futures import ProcessPoolExecutor
 import multiprocessing as mp
 
+import glfw
 from rendercanvas.auto import RenderCanvas, loop
 from wgpu.utils.imgui import ImguiRenderer
 import wgpu
@@ -41,16 +42,21 @@ class GUI:
     # ------------------------------------------------------------------
     # Construction / initialisation
     # ------------------------------------------------------------------
-    def __init__(self, state: Any, *, width: int = 1280, height: int = 720) -> None:
+    def __init__(
+        self, state: Any, *, width: int = 1280, height: int = 720, menubar: bool = False
+    ) -> None:
         # Configure pygfx to only request available GPU features
         _configure_pygfx_features()
-        
+
         # -- wgpu canvas --
         self.canvas = RenderCanvas(
             size=(width, height),
             title="deamat",
             update_mode="continuous",
         )
+
+        # -- UI options --
+        self._menubar = menubar
 
         # -- pygfx renderer --
         self.renderer = gfx.WgpuRenderer(self.canvas)
@@ -92,14 +98,15 @@ class GUI:
         imgui.set_next_window_size((mv.size.x, mv.size.y))
         imgui.set_next_window_bg_alpha(0)
         flags = (
-            imgui.WindowFlags_.menu_bar
-            | imgui.WindowFlags_.no_decoration
+            imgui.WindowFlags_.no_decoration
             | imgui.WindowFlags_.no_resize
             | imgui.WindowFlags_.no_move
             | imgui.WindowFlags_.no_collapse
             | imgui.WindowFlags_.no_bring_to_front_on_focus
             | imgui.WindowFlags_.no_background
         )
+        if self._menubar:
+            flags |= imgui.WindowFlags_.menu_bar
         imgui.push_style_var(imgui.StyleVar_.window_rounding, 0.0)
         imgui.push_style_var(imgui.StyleVar_.window_padding, (0.0, 0.0))
         imgui.begin("MainDockHost", flags=flags)
@@ -188,6 +195,31 @@ class GUI:
 
     def exec_coroutine(self, co: Coroutine[Any, Any, Any]) -> None:
         asyncio.run_coroutine_threadsafe(co, self.asyncio_loop)
+
+    def set_floating(self, aspect_ratio: Optional[tuple[int, int]] = None) -> None:
+        """Make the window floating (always on top) with an optional fixed aspect ratio.
+
+        This method only works with the GLFW backend. On other backends, a warning
+        is logged and the call has no effect.
+
+        Args:
+            aspect_ratio: Optional tuple of (width, height) to constrain the window
+                aspect ratio during resizing. For example, (16, 9) for 16:9 ratio.
+        """
+        # Check if we have a GLFW window (rendercanvas stores it as _window)
+        window = getattr(self.canvas, "_window", None)
+        if window is None:
+            self.logger.warning(
+                "set_floating() is only supported with the GLFW backend"
+            )
+            return
+
+        # Make window floating (always on top)
+        glfw.set_window_attrib(window, glfw.FLOATING, glfw.TRUE)
+
+        # Set aspect ratio if provided
+        if aspect_ratio is not None:
+            glfw.set_window_aspect_ratio(window, aspect_ratio[0], aspect_ratio[1])
 
     # ------------------------------------------------------------------
     # Main loop

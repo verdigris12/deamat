@@ -13,8 +13,8 @@ class TestGUI(unittest.TestCase):
 
     def test_initialization(self) -> None:
         """Ensure the GUI is properly initialised."""
-        self.assertIsNotNone(self.gui.window)
-        self.assertIsNotNone(self.gui.impl)
+        self.assertIsNotNone(self.gui.canvas)
+        self.assertIsNotNone(self.gui.gui_renderer)
         # The GUI should retain a reference to the state passed in
         self.assertEqual(self.gui.state, self.state)
 
