@@ -17,6 +17,8 @@
               glibc stdenv.cc.cc.lib zlib
               python312 uv
               pkg-config patchelf bashInteractive
+              vulkan-loader
+              vulkan-tools
 
               # Build tools (for packages that need compilation)
               gcc cmake ninja
