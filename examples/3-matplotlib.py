@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 
 """
-Example: display a histogram generated with matplotlib and update it when the
-state changes.  This example demonstrates how to integrate matplotlib figures
-into an imgui interface using deamat.
+Example: lazy histogram construction and explicit source-data invalidation.
+Pan, rectangle zoom, wheel zoom and history work directly in the embedded
+figure. The Properties toggle opens the same inspector as the standalone viewer.
 """
 
 from matplotlib import pyplot as plt
@@ -30,11 +30,12 @@ class State(GUIState):
 
 def update_ui(state: State, gui: dGUI, dt: float) -> None:
     imgui.set_next_window_size(imgui.ImVec2(500, 500), cond=imgui.Cond_.once)
-    imgui.begin('Matplotlib example')
-    if imgui.button('Re-sample'):
-        state.reroll()
-        state.invalidate_figure('hist')
-    dw.figure(gui, state, 'hist', autosize=False)
+    visible, _ = imgui.begin('Matplotlib example')
+    if visible:
+        if imgui.button('Re-sample'):
+            state.reroll()
+            state.invalidate_figure('hist')
+        dw.figure(gui, state, 'hist', autosize=True)
     imgui.end()
 
 

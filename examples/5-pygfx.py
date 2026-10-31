@@ -17,6 +17,8 @@ class State(GUIState):
     def __init__(self) -> None:
         super().__init__()
         self.value = 0
+        self.camera = gfx.PerspectiveCamera(45, 4 / 3)
+        self.controller = gfx.OrbitController(self.camera)
 
     def init_scene(self, scene: gfx.Scene, camera: gfx.PerspectiveCamera):
         """Initialize the 3D scene with a sphere."""
@@ -34,13 +36,18 @@ class State(GUIState):
 
         # Position camera
         camera.local.z = 4
+        camera.show_pos((0, 0, 0))
 
 
 def update_ui(state: State, gui: dGUI, dt: float) -> None:
     """Callback executed each frame to build the UI."""
     imgui.set_next_window_size(imgui.ImVec2(400, 300), cond=imgui.Cond_.once)
-    imgui.begin('pygfx example')
-    dw.pygfx_canvas(gui, state, "main_3d", on_init=state.init_scene)
+    visible, _ = imgui.begin('pygfx example')
+    if visible:
+        dw.pygfx_canvas(
+            gui, state, "main_3d", on_init=state.init_scene,
+            camera=state.camera, controller=state.controller,
+        )
     imgui.end()
 
 

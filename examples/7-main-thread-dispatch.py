@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 
 """
-Example: thread-safe state mutation from async coroutines using sync context.
+Example: await explicit main-thread callbacks from background coroutines.
 
-When async coroutines need to modify state, use gui.state.sync() to ensure
-changes are safely merged on the main thread.
+Each completed task increments the current value on the GUI thread. Concurrent
+tasks cannot overwrite each other's changes with a stale state snapshot.
 """
 
 import asyncio
@@ -21,15 +21,16 @@ class State(GUIState):
         self.value = 0
 
 
-async def delayed_exec(gui: dGUI) -> None:
-    async with gui.state.sync() as state:
-        state.status = 'sleeping'
-    
+def finish_increment(state: State) -> int:
+    state.value += 1
+    state.status = f"Completed increment {state.value}"
+    return state.value
+
+
+async def delayed_exec(gui: dGUI) -> int:
+    await asyncio.wrap_future(gui.post(setattr, gui.state, "status", "sleeping"))
     await asyncio.sleep(2)
-    
-    async with gui.state.sync() as state:
-        state.value += 1
-        state.status = ''
+    return await asyncio.wrap_future(gui.post(finish_increment, gui.state))
 
 
 def update_ui(state: State, gui: dGUI, dt: float) -> None:

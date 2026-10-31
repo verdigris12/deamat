@@ -1,307 +1,282 @@
-# pygfx widget for deamat with zerocopy texture sharing
-# Renders a pygfx Scene to a wgpu texture and displays it via imgui.image()
+"""Retained, zero-copy pygfx views embedded in ImGui."""
 
 from typing import Any, Callable
+from weakref import ref
+
 import pygfx as gfx
+import wgpu
 from imgui_bundle import imgui
+from rendercanvas.offscreen import RenderCanvas
 
 
-class _FakeRenderer:
-    """A minimal renderer-like object that does nothing on request_draw()."""
-    
-    def request_draw(self) -> None:
-        # We're already in a render loop, so this is a no-op
-        pass
+_INPUT_EVENTS = ("pointer_down", "pointer_move", "pointer_up", "wheel", "key_down", "key_up")
 
 
-class _FakeViewport:
-    """A minimal viewport-like object for pygfx controllers.
-    
-    pygfx controllers expect a viewport with `rect`, `is_inside()` method,
-    and a `renderer` attribute with `request_draw()`.
-    
-    The rect must be in screen coordinates so that is_inside() works correctly
-    with absolute mouse positions, and so drag actions calculate deltas properly.
+class PygfxCanvas:
+    """Public scene/camera/renderer handle returned by :func:`pygfx_canvas`.
+
+    The renderer remains stable across resizes, so its event handlers remain
+    attached. Enable ``material.pick_write`` for object picking, then register
+    pygfx click/hover handlers on objects, the scene, or ``renderer``. Coordinates
+    are logical pixels relative to the image. ``close()`` releases this view;
+    GUI shutdown also closes it. Set ``continuous=False`` on the widget for a
+    static scene and call ``invalidate()`` after changing its contents.
     """
-    
-    def __init__(self, x: float, y: float, width: int, height: int):
-        self._rect = (x, y, width, height)
-        self.renderer = _FakeRenderer()
-    
+
+    def __init__(self, gui, canvas_id, size, pixel_ratio, camera=None):
+        self._gui = gui
+        self._canvas_id = canvas_id
+        self.scene = gfx.Scene()
+        self._camera = camera if camera is not None else gfx.PerspectiveCamera(45, size[0] / size[1])
+        self._controller = None
+        self._owns_camera = False
+        self._closed = False
+        self._dirty = True
+        self._inited = False
+        self._buttons = set()
+        self._keys = set()
+        self._mouse_pos = None
+        self._hovered = False
+        self._image_pos = (0.0, 0.0)
+        self._size = size
+        self._pixel_ratio = pixel_ratio
+        self._tex_ref = None
+        self._texture = None
+        self._texture_view = None
+        # Never call draw(): that presents a CPU bitmap. Render directly into
+        # the context texture and share its GPU view with ImGui instead.
+        self._target = RenderCanvas(size=size, pixel_ratio=pixel_ratio)
+        self.renderer = gfx.WgpuRenderer(self._target, pixel_scale=1, enable_events=False)
+        self._context = self._target.get_context("wgpu")
+        self._configure_target()
+        self._viewport = gfx.Viewport(self.renderer)
+        self.renderer.add_event_handler(self._controller_event, *_INPUT_EVENTS)
+        gui.canvas.add_event_handler(self._native_event, "key_down", "key_up", "pointer_up")
+        weak_view = ref(self)
+
+        def cleanup():
+            view = weak_view()
+            if view is not None:
+                view.close()
+
+        gui.add_cleanup(cleanup)
+
+    def _configure_target(self):
+        self._context.configure(
+            device=self.renderer.device,
+            format="rgba8unorm",
+            usage=wgpu.TextureUsage.RENDER_ATTACHMENT | wgpu.TextureUsage.TEXTURE_BINDING,
+        )
+        self._texture = self._context.get_current_texture()
+        self._texture_view = self._texture.create_view()
+        self._tex_ref = self._gui.gui_renderer.backend.register_texture(self._texture_view)
+
     @property
-    def rect(self) -> tuple[float, float, int, int]:
-        return self._rect
-    
-    def is_inside(self, x: float, y: float) -> bool:
-        rx, ry, rw, rh = self._rect
-        return rx <= x < rx + rw and ry <= y < ry + rh
+    def camera(self):
+        return self._camera
+
+    @camera.setter
+    def camera(self, camera):
+        if not isinstance(camera, gfx.Camera):
+            raise TypeError("camera must be a pygfx Camera")
+        if camera is self._camera:
+            return
+        controller = self.controller
+        self.controller = None
+        self._camera = camera
+        self.controller = controller
+        self.invalidate()
+
+    @property
+    def controller(self):
+        return self._controller
+
+    @controller.setter
+    def controller(self, controller):
+        if controller is self._controller:
+            return
+        self._release_input()
+        if self._controller is not None and self._owns_camera:
+            self._controller.remove_camera(self.camera)
+        self._controller = controller
+        self._owns_camera = False
+        if controller is not None and self.camera not in controller.cameras:
+            controller.add_camera(self.camera)
+            self._owns_camera = True
+        # Do not re-add a caller-owned camera: that resets include/exclude filters.
+        self.invalidate()
+
+    def _controller_event(self, event):
+        if self.controller is not None:
+            self.controller.handle_event(event, self._viewport)
+
+    def invalidate(self):
+        """Request a redraw after a scene change (also wakes an on-demand GUI)."""
+        if not self._closed:
+            self._dirty = True
+            self._gui.request_draw()
+
+    def _dispatch(self, event_type, **event):
+        self.renderer.convert_event({"event_type": event_type, **event})
+        self.invalidate()
+
+    def _native_event(self, event):
+        # Native releases also reach a canvas whose ImGui window was collapsed
+        # during a drag. Keyboard events preserve renderer key names/modifiers.
+        kind = event["event_type"]
+        if kind == "pointer_up":
+            button = event["button"]
+            if button in self._buttons:
+                x = event["x"] - self._image_pos[0]
+                y = event["y"] - self._image_pos[1]
+                buttons = tuple(b for b in self._buttons if b != button)
+                self._pointer_release(button, x, y, buttons, tuple(event.get("modifiers", ())))
+        elif kind == "key_up" and event["key"] in self._keys:
+            self._keys.remove(event["key"])
+            self._dispatch(kind, key=event["key"], modifiers=event.get("modifiers", ()))
+        elif kind == "key_down" and getattr(self._gui, "_pygfx_keyboard_view", None) is self:
+            if not imgui.get_io().want_text_input:
+                self._keys.add(event["key"])
+                self._dispatch(kind, key=event["key"], modifiers=event.get("modifiers", ()))
+
+    def _pointer_release(self, button, x, y, buttons, modifiers):
+        # Controllers consume the final position on move, not on pointer_up.
+        args = dict(x=x, y=y, buttons=buttons, modifiers=modifiers, pointer_id=0)
+        self._dispatch("pointer_move", button=0, **args)
+        self._dispatch("pointer_up", button=button, **args)
+        self._buttons.discard(button)
+        self._mouse_pos = (x, y)
+
+    def _release_input(self):
+        x, y = self._mouse_pos or (0, 0)
+        for button in tuple(self._buttons):
+            self._pointer_release(button, x, y, (), ())
+        for key in tuple(self._keys):
+            self._dispatch("key_up", key=key, modifiers=())
+        self._keys.clear()
+
+    def _resize(self, size, pixel_ratio):
+        if (size, pixel_ratio) == (self._size, self._pixel_ratio):
+            return
+        self._gui.gui_renderer.backend.unregister_texture(self._tex_ref)
+        self._tex_ref = None
+        self._texture_view = None
+        self._texture.destroy()
+        self._texture = None
+        self._context.unconfigure()
+        self._target.set_pixel_ratio(pixel_ratio)
+        self._target.set_logical_size(*size)
+        self._configure_target()
+        self._size, self._pixel_ratio = size, pixel_ratio
+        # set_view_size affects projection, never camera world extents or FOV.
+        self.camera.set_view_size(*size)
+        self.invalidate()
+
+    def close(self):
+        """Detach input handlers and release GPU registrations, idempotently."""
+        if self._closed:
+            return
+        self.controller = None
+        self._release_input()
+        self._closed = True
+        self.renderer.remove_event_handler(self._controller_event, *_INPUT_EVENTS)
+        self._gui.canvas.remove_event_handler(self._native_event, "key_down", "key_up", "pointer_up")
+        if getattr(self._gui, "_pygfx_keyboard_view", None) is self:
+            self._gui._pygfx_keyboard_view = None
+        if self._tex_ref is not None:
+            self._gui.gui_renderer.backend.unregister_texture(self._tex_ref)
+        self._tex_ref = self._texture_view = None
+        if self._texture is not None:
+            self._texture.destroy()
+        self._texture = None
+        self._context.unconfigure()
+        self._target.close()
+        if self._gui._pygfx_scenes.get(self._canvas_id) is self:
+            self._gui._pygfx_scenes.pop(self._canvas_id)
+            self._gui.scenes.pop(self._canvas_id, None)
+        # Pygfx has no renderer.close(); dropping it releases its internal buffers.
+        self.renderer = self._viewport = self._context = self._target = None
 
 
-def _handle_imgui_events(
-    entry: dict,
-    width: int,
-    height: int,
-    image_pos: tuple[float, float],
-) -> None:
-    """Handle imgui mouse events and forward to pygfx controller.
-    
-    Parameters
-    ----------
-    entry : dict
-        The canvas registry entry containing controller, camera, etc.
-    width : int
-        Canvas width in pixels.
-    height : int
-        Canvas height in pixels.
-    image_pos : tuple[float, float]
-        Top-left position of the image widget in screen coordinates.
-    """
-    controller = entry.get("controller")
-    if controller is None:
-        return
-    
-    # Only handle events if the image is hovered
-    if not imgui.is_item_hovered():
-        return
-    
+def _handle_imgui_events(view):
     io = imgui.get_io()
-    mouse_pos = imgui.get_mouse_pos()
-    
-    # Use absolute screen coordinates - pygfx controllers expect consistent
-    # coordinate space for drag operations (they store initial position as offset
-    # and calculate deltas from subsequent positions)
-    abs_x = mouse_pos.x
-    abs_y = mouse_pos.y
-    
-    # Create viewport with screen-space rect so is_inside() works correctly
-    viewport = _FakeViewport(image_pos[0], image_pos[1], width, height)
-    
-    # Track button states
-    buttons_down = []
-    if imgui.is_mouse_down(imgui.MouseButton_.left):
-        buttons_down.append(1)
-    if imgui.is_mouse_down(imgui.MouseButton_.right):
-        buttons_down.append(2)
-    if imgui.is_mouse_down(imgui.MouseButton_.middle):
-        buttons_down.append(3)
-    
-    # Get modifiers
-    modifiers = []
-    if io.key_shift:
-        modifiers.append("Shift")
-    if io.key_ctrl:
-        modifiers.append("Control")
-    if io.key_alt:
-        modifiers.append("Alt")
-    
-    # Handle mouse button events
-    for btn_idx, btn in enumerate([imgui.MouseButton_.left, imgui.MouseButton_.right, imgui.MouseButton_.middle]):
-        btn_num = btn_idx + 1
-        
-        if imgui.is_mouse_clicked(btn):
-            event = gfx.PointerEvent(
-                type="pointer_down",
-                x=abs_x,
-                y=abs_y,
-                button=btn_num,
-                buttons=tuple(buttons_down),
-                modifiers=tuple(modifiers),
-            )
-            controller.handle_event(event, viewport)
-        
-        if imgui.is_mouse_released(btn):
-            event = gfx.PointerEvent(
-                type="pointer_up",
-                x=abs_x,
-                y=abs_y,
-                button=btn_num,
-                buttons=tuple(buttons_down),
-                modifiers=tuple(modifiers),
-            )
-            controller.handle_event(event, viewport)
-    
-    # Handle mouse move (when any button is down for drag)
-    if any(buttons_down):
-        event = gfx.PointerEvent(
-            type="pointer_move",
-            x=abs_x,
-            y=abs_y,
-            button=0,
-            buttons=tuple(buttons_down),
-            modifiers=tuple(modifiers),
-        )
-        controller.handle_event(event, viewport)
-    
-    # Handle mouse wheel
-    # imgui gives wheel values typically in range [-1, 1] per scroll tick
-    # pygfx controller multiplier is -0.001, so we scale to get reasonable zoom speed
-    wheel_y = io.mouse_wheel
-    wheel_x = io.mouse_wheel_h
-    if wheel_y != 0 or wheel_x != 0:
-        event = gfx.WheelEvent(
-            type="wheel",
-            x=abs_x,
-            y=abs_y,
-            dx=wheel_x * 50,  # Scale for reasonable zoom granularity
-            dy=wheel_y * 50,
-            button=0,
-            buttons=tuple(buttons_down),
-            modifiers=tuple(modifiers),
-        )
-        controller.handle_event(event, viewport)
+    mouse = imgui.get_mouse_pos()
+    x, y = mouse.x - view._image_pos[0], mouse.y - view._image_pos[1]
+    hovered = imgui.is_item_hovered()
+    modifiers = tuple(name for enabled, name in (
+        (io.key_shift, "Shift"), (io.key_ctrl, "Control"),
+        (io.key_alt, "Alt"), (io.key_super, "Meta"),
+    ) if enabled)
+    buttons = tuple(n for n, button in ((1, imgui.MouseButton_.left), (2, imgui.MouseButton_.right), (3, imgui.MouseButton_.middle)) if imgui.is_mouse_down(button))
+    args = dict(x=x, y=y, buttons=buttons, modifiers=modifiers, pointer_id=0)
+    for n, button in ((1, imgui.MouseButton_.left), (2, imgui.MouseButton_.right), (3, imgui.MouseButton_.middle)):
+        if hovered and imgui.is_mouse_clicked(button):
+            previous = getattr(view._gui, "_pygfx_keyboard_view", None)
+            if previous is not None and previous is not view:
+                previous._release_input()
+            view._gui._pygfx_keyboard_view = view
+            view._buttons.add(n)
+            view._dispatch("pointer_down", button=n, **args)
+        if n in view._buttons and not imgui.is_mouse_down(button):
+            view._pointer_release(n, x, y, buttons, modifiers)
+    if (hovered or view._hovered or view._buttons) and (view._mouse_pos != (x, y) or hovered != view._hovered):
+        # Send one out-of-bounds move on leaving, so pygfx emits pointer_leave.
+        move_args = args if hovered or view._buttons else {**args, "x": -1, "y": -1}
+        view._dispatch("pointer_move", button=0, **move_args)
+    view._mouse_pos, view._hovered = (x, y), hovered
+    if hovered and (io.mouse_wheel or io.mouse_wheel_h):
+        # ImGui positive means up; rendercanvas/pygfx positive means down.
+        view._dispatch("wheel", dx=-io.mouse_wheel_h * 100, dy=-io.mouse_wheel * 100, button=0, **args)
 
 
 def pygfx_canvas(
     gui: Any,
     state: Any,
     canvas_id: str,
-    on_init: Callable[[gfx.Scene, gfx.PerspectiveCamera], None] | None = None,
+    on_init: Callable[[gfx.Scene, gfx.Camera], gfx.Camera | None] | None = None,
     controller: gfx.Controller | None = None,
-) -> None:
+    *,
+    camera: gfx.Camera | None = None,
+    continuous: bool = True,
+) -> PygfxCanvas:
+    """Draw a retained pygfx view and return its public :class:`PygfxCanvas`.
+
+    ``camera`` selects an explicit camera; alternatively ``on_init(scene,
+    camera)`` may return one. The callback runs once, before the first render.
+    Passing ``controller=None`` detaches controls. Existing camera filters on
+    caller-owned controllers are preserved. Continuous rendering is the default
+    for animation; static callers can opt out and use ``handle.invalidate()``.
+    Call only inside a visible ImGui window (check ``imgui.begin``'s result).
     """
-    Embed a pygfx 3D scene into an ImGui window using zerocopy texture sharing.
-
-    The scene is rendered to a pygfx Texture, and the underlying wgpu texture view
-    is registered with the imgui backend for direct display without pixel copying.
-
-    Parameters
-    ----------
-    gui : GUI
-        The deamat GUI instance.
-    state : GUIState
-        The application state.
-    canvas_id : str
-        Unique identifier for this canvas.
-    on_init : callable, optional
-        Callback invoked once when the scene is created, receiving
-        (scene, camera) as arguments. Use this to add objects, lights, etc.
-    controller : gfx.Controller, optional
-        A pygfx controller (e.g., OrbitController, TrackballController) for
-        camera interaction. If provided, mouse events will be forwarded to it.
-    """
-    registry = gui._pygfx_scenes
-
-    # Get available region size from ImGui
     avail = imgui.get_content_region_avail()
-    width = max(1, int(avail.x))
-    height = max(1, int(avail.y))
-
-    if canvas_id not in registry:
-        # Create pygfx scene and camera
-        scene = gfx.Scene()
-        camera = gfx.PerspectiveCamera(45, width / height if height > 0 else 1)
-
-        # Create a pygfx Texture as render target
-        # pygfx will create the underlying wgpu texture automatically
-        gfx_texture = gfx.Texture(
-            data=None,
-            dim=2,
-            size=(width, height, 1),
-            format="rgba8unorm",
-        )
-
-        # Create a dedicated renderer for this canvas that targets the texture
-        renderer = gfx.WgpuRenderer(gfx_texture)
-
-        # Force the texture to be created by accessing internal wgpu object
-        # The renderer creates the wgpu texture lazily, so we need to trigger it
-        renderer.render(scene, camera, flush=True)
-
-        # Get the wgpu texture view and register with imgui
-        wgpu_texture = gfx_texture._wgpu_object
-        texture_view = wgpu_texture.create_view()
-        tex_ref = gui.gui_renderer.backend.register_texture(texture_view)
-
-        registry[canvas_id] = {
-            "scene": scene,
-            "camera": camera,
-            "renderer": renderer,
-            "gfx_texture": gfx_texture,
-            "texture_view": texture_view,
-            "tex_ref": tex_ref,
-            "size": (width, height),
-            "inited": False,
-            "controller": None,
-        }
-        gui.scenes[canvas_id] = scene
-
-    entry = registry[canvas_id]
-    scene = entry["scene"]
-    camera = entry["camera"]
-    renderer = entry["renderer"]
-
-    # Update controller reference (may change between frames)
-    if controller is not None:
-        if entry["controller"] is not controller:
-            entry["controller"] = controller
-            # Register camera with controller if not already done
-            controller.add_camera(camera)
-
-    # Run user init callback once
-    if not entry["inited"] and on_init is not None:
-        on_init(scene, camera)
-        entry["inited"] = True
-
-    # Handle resize
-    if (width, height) != entry["size"] and width > 0 and height > 0:
-        # Unregister old texture
-        gui.gui_renderer.backend.unregister_texture(entry["tex_ref"])
-
-        # Create new pygfx texture with new size
-        gfx_texture = gfx.Texture(
-            data=None,
-            dim=2,
-            size=(width, height, 1),
-            format="rgba8unorm",
-        )
-
-        # Create new renderer targeting the new texture
-        renderer = gfx.WgpuRenderer(gfx_texture)
-
-        # Force texture creation
-        renderer.render(scene, camera, flush=True)
-
-        # Get the wgpu texture view and register with imgui
-        wgpu_texture = gfx_texture._wgpu_object
-        texture_view = wgpu_texture.create_view()
-        tex_ref = gui.gui_renderer.backend.register_texture(texture_view)
-
-        # Update camera aspect ratio
-        camera.fov = 45
-        if hasattr(camera, "aspect"):
-            camera.aspect = width / height
-
-        entry["renderer"] = renderer
-        entry["gfx_texture"] = gfx_texture
-        entry["texture_view"] = texture_view
-        entry["tex_ref"] = tex_ref
-        entry["size"] = (width, height)
-
-    # Update camera view size for proper projection
-    camera.set_view_size(width, height)
-
-    # Render pygfx scene to the texture
-    renderer.render(scene, camera, flush=True)
-
-    # Get cursor position before drawing image (for event handling)
-    cursor_pos = imgui.get_cursor_screen_pos()
-    image_pos = (cursor_pos.x, cursor_pos.y)
-
-    # Display texture in imgui (ZEROCOPY - just passes the texture reference)
-    imgui.image(
-        entry["tex_ref"],
-        imgui.ImVec2(float(width), float(height)),
-    )
-
-    # Overlay an invisible button to capture mouse events and prevent
-    # ImGui from using them for window dragging
-    imgui.set_cursor_screen_pos(cursor_pos)  # Reset cursor to image position
-    imgui.invisible_button(f"##{canvas_id}_input", imgui.ImVec2(float(width), float(height)))
-
-    # Handle mouse events for controller
-    _handle_imgui_events(entry, width, height, image_pos)
-    
-    # Tick the controller to process accumulated actions and update camera
-    # (pygfx controllers normally do this on 'before_render' events)
-    if entry.get("controller") is not None:
-        entry["controller"].tick()
+    size = (max(1, int(avail.x)), max(1, int(avail.y)))
+    pixel_ratio = gui.canvas.get_pixel_ratio()
+    view = gui._pygfx_scenes.get(canvas_id)
+    if view is None:
+        view = PygfxCanvas(gui, canvas_id, size, pixel_ratio, camera)
+        gui._pygfx_scenes[canvas_id] = view
+        gui.scenes[canvas_id] = view.scene
+    elif camera is not None:
+        view.camera = camera
+    if not view._inited and on_init is not None:
+        replacement = on_init(view.scene, view.camera)
+        if replacement is not None:
+            view.camera = replacement
+        view._inited = True
+    view.controller = controller
+    view._resize(size, pixel_ratio)
+    view.camera.set_view_size(*size)
+    pos = imgui.get_cursor_screen_pos()
+    view._image_pos = (pos.x, pos.y)
+    flags = imgui.ButtonFlags_.mouse_button_left | imgui.ButtonFlags_.mouse_button_right | imgui.ButtonFlags_.mouse_button_middle
+    imgui.invisible_button(f"##{canvas_id}_input", imgui.ImVec2(*size), flags)
+    _handle_imgui_events(view)
+    changed = view.controller.tick() if view.controller is not None else None
+    if continuous or view._dirty or changed is not None:
+        view._dirty = False
+        view.renderer.render(view.scene, view.camera)
+    # Drawing after the input item keeps the layout item and its focus intact.
+    imgui.get_window_draw_list().add_image(view._tex_ref, pos, imgui.ImVec2(pos.x + size[0], pos.y + size[1]))
+    if continuous or changed is not None:
+        gui.request_draw()
+    return view

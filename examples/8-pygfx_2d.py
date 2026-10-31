@@ -19,34 +19,13 @@ from deamat import imgui
 from deamat import widgets as dw
 
 
-def generate_lissajous(a: float, b: float, delta: float, num_points: int = 1000) -> np.ndarray:
-    """Generate Lissajous curve points.
-    
-    Parametric equations:
-        x = sin(a*t + delta)
-        y = sin(b*t)
-    
-    Parameters
-    ----------
-    a : float
-        Frequency for x-axis
-    b : float
-        Frequency for y-axis  
-    delta : float
-        Phase shift in radians
-    num_points : int
-        Number of points to generate
-        
-    Returns
-    -------
-    np.ndarray
-        Array of shape (num_points, 3) with xyz coordinates (z=0)
-    """
-    t = np.linspace(0, 2 * np.pi, num_points)
-    x = np.sin(a * t + delta)
-    y = np.sin(b * t)
-    z = np.zeros_like(t)
-    return np.column_stack([x, y, z]).astype(np.float32)
+def update_lissajous(positions, samples, a, b, delta):
+    """Fill the retained float32 vertex array without per-frame curve buffers."""
+    np.multiply(samples, a, out=positions[:, 0])
+    np.add(positions[:, 0], delta, out=positions[:, 0])
+    np.sin(positions[:, 0], out=positions[:, 0])
+    np.multiply(samples, b, out=positions[:, 1])
+    np.sin(positions[:, 1], out=positions[:, 1])
 
 
 class State(GUIState):
@@ -71,17 +50,18 @@ class State(GUIState):
         # References
         self.line: gfx.Line | None = None
         self.geometry: gfx.Geometry | None = None
-        self.camera: gfx.OrthographicCamera | None = None
-        self._needs_update = True
-
-    def init_scene(self, scene: gfx.Scene, camera: gfx.PerspectiveCamera):
-        """Initialize the 2D scene."""
-        # Replace with orthographic camera for 2D
         self.camera = gfx.OrthographicCamera(2.2, 2.2, maintain_aspect=True)
-        
-        # Create initial geometry
-        positions = generate_lissajous(self.freq_a, self.freq_b, self.phase_delta, self.num_points)
+        self.controller = gfx.PanZoomController(self.camera)
+        self.samples = np.linspace(0, 2 * np.pi, self.num_points, dtype=np.float32)
+        self._needs_update = True
+        self._last_appearance = None
+
+    def init_scene(self, scene: gfx.Scene, camera: gfx.OrthographicCamera):
+        """Initialize the 2D scene with the explicit orthographic camera."""
+        positions = np.zeros((self.num_points, 3), dtype=np.float32)
+        update_lissajous(positions, self.samples, self.freq_a, self.freq_b, self.phase_delta)
         self.geometry = gfx.Geometry(positions=positions)
+        self._needs_update = False
         
         # Create line with anti-aliasing
         material = gfx.LineMaterial(
@@ -97,6 +77,8 @@ class State(GUIState):
         
         # Background
         scene.add(gfx.Background.from_color((0.05, 0.05, 0.1, 1.0)))
+        self._last_appearance = (self.line_color, self.line_thickness, self.show_axes)
+        self.x_axis.visible = self.y_axis.visible = self.show_axes
 
     def _add_axes(self, scene: gfx.Scene):
         """Add X and Y axis lines."""
@@ -126,115 +108,68 @@ class State(GUIState):
         
         # Update geometry if needed
         if self._needs_update:
-            positions = generate_lissajous(
-                self.freq_a, self.freq_b, self.phase_delta, self.num_points
+            update_lissajous(
+                self.geometry.positions.data, self.samples,
+                self.freq_a, self.freq_b, self.phase_delta,
             )
-            self.geometry.positions.data[:] = positions
             self.geometry.positions.update_range()
             self._needs_update = False
         
-        # Update line appearance
-        self.line.material.color = self.line_color
-        self.line.material.thickness = self.line_thickness
-        
-        # Toggle axes visibility
-        if hasattr(self, 'x_axis'):
-            self.x_axis.visible = self.show_axes
-            self.y_axis.visible = self.show_axes
+        appearance = (self.line_color, self.line_thickness, self.show_axes)
+        previous = self._last_appearance
+        if self.line_color != previous[0]:
+            self.line.material.color = self.line_color
+        if self.line_thickness != previous[1]:
+            self.line.material.thickness = self.line_thickness
+        if self.show_axes != previous[2]:
+            self.x_axis.visible = self.y_axis.visible = self.show_axes
+        self._last_appearance = appearance
 
 
 def update_ui(state: State, gui: dGUI, dt: float) -> None:
-    """Callback executed each frame to build the UI."""
-    
-    # 2D canvas
-    imgui.set_next_window_size(imgui.ImVec2(500, 500), cond=imgui.Cond_.once)
-    imgui.begin("Lissajous Figure")
-    
-    # Use custom camera for 2D rendering
-    def on_init_2d(scene, camera):
-        state.init_scene(scene, camera)
-    
-    dw.pygfx_canvas(gui, state, "lissajous_2d", on_init=on_init_2d)
-    imgui.end()
-    
-    # Controls
+    """Apply controls and animation before rendering visible windows."""
     imgui.set_next_window_size(imgui.ImVec2(300, 400), cond=imgui.Cond_.once)
-    imgui.begin("Lissajous Controls")
-    
-    imgui.text("Curve Parameters")
-    imgui.text("x = sin(a*t + delta)")
-    imgui.text("y = sin(b*t)")
-    imgui.separator()
-    
-    # Frequency controls with common ratios
-    changed_a, state.freq_a = imgui.slider_float("Freq A", state.freq_a, 1.0, 10.0)
-    changed_b, state.freq_b = imgui.slider_float("Freq B", state.freq_b, 1.0, 10.0)
-    
-    # Quick ratio buttons
-    imgui.text("Quick ratios (A:B):")
-    if imgui.button("1:1"):
-        state.freq_a, state.freq_b = 1.0, 1.0
-        state._needs_update = True
-    imgui.same_line()
-    if imgui.button("2:1"):
-        state.freq_a, state.freq_b = 2.0, 1.0
-        state._needs_update = True
-    imgui.same_line()
-    if imgui.button("3:2"):
-        state.freq_a, state.freq_b = 3.0, 2.0
-        state._needs_update = True
-    imgui.same_line()
-    if imgui.button("5:4"):
-        state.freq_a, state.freq_b = 5.0, 4.0
-        state._needs_update = True
-    
-    if imgui.button("3:4"):
-        state.freq_a, state.freq_b = 3.0, 4.0
-        state._needs_update = True
-    imgui.same_line()
-    if imgui.button("5:6"):
-        state.freq_a, state.freq_b = 5.0, 6.0
-        state._needs_update = True
-    imgui.same_line()
-    if imgui.button("7:8"):
-        state.freq_a, state.freq_b = 7.0, 8.0
-        state._needs_update = True
-    
-    changed_delta, new_delta = imgui.slider_float(
-        "Phase (delta)", state.phase_delta, 0.0, 2 * np.pi, "%.2f rad"
-    )
-    if changed_delta:
-        state.phase_delta = new_delta
-        state._needs_update = True
-    
-    if changed_a or changed_b:
-        state._needs_update = True
-    
-    imgui.separator()
-    imgui.text("Animation")
-    _, state.animate = imgui.checkbox("Animate phase", state.animate)
-    _, state.anim_speed = imgui.slider_float("Speed", state.anim_speed, 0.1, 5.0)
-    
-    imgui.separator()
-    imgui.text("Appearance")
-    _, state.line_thickness = imgui.slider_float("Thickness", state.line_thickness, 1.0, 10.0)
-    _, state.show_axes = imgui.checkbox("Show axes", state.show_axes)
-    
-    c0 = list(state.line_color)
-    changed_color, c = imgui.color_edit4("Line Color", c0)
-    if changed_color:
-        state.line_color = tuple(c)
-    
+    visible, _ = imgui.begin("Lissajous Controls")
+    if visible:
+        imgui.text("Curve Parameters")
+        imgui.text("x = sin(a*t + delta)")
+        imgui.text("y = sin(b*t)")
+        imgui.separator()
+        changed_a, state.freq_a = imgui.slider_float("Freq A", state.freq_a, 1.0, 10.0)
+        changed_b, state.freq_b = imgui.slider_float("Freq B", state.freq_b, 1.0, 10.0)
+        imgui.text("Quick ratios (A:B):")
+        for index, (a, b) in enumerate(((1, 1), (2, 1), (3, 2), (5, 4), (3, 4), (5, 6), (7, 8))):
+            if index % 4:
+                imgui.same_line()
+            if imgui.button(f"{a}:{b}"):
+                state.freq_a, state.freq_b = float(a), float(b)
+                state._needs_update = True
+        changed_delta, state.phase_delta = imgui.slider_float(
+            "Phase (delta)", state.phase_delta, 0.0, 2 * np.pi, "%.2f rad"
+        )
+        state._needs_update |= changed_a or changed_b or changed_delta
+        imgui.separator()
+        imgui.text("Animation")
+        _, state.animate = imgui.checkbox("Animate phase", state.animate)
+        _, state.anim_speed = imgui.slider_float("Speed", state.anim_speed, 0.1, 5.0)
+        imgui.separator()
+        imgui.text("Appearance")
+        _, state.line_thickness = imgui.slider_float("Thickness", state.line_thickness, 1.0, 10.0)
+        _, state.show_axes = imgui.checkbox("Show axes", state.show_axes)
+        changed_color, color = imgui.color_edit4("Line Color", list(state.line_color))
+        if changed_color:
+            state.line_color = tuple(color)
     imgui.end()
-    
-    # Update state
-    state.update(dt)
-    
-    # Override camera in the pygfx canvas registry to use orthographic
-    if "lissajous_2d" in gui._pygfx_scenes and state.camera is not None:
-        entry = gui._pygfx_scenes["lissajous_2d"]
-        if entry["camera"] != state.camera:
-            entry["camera"] = state.camera
+
+    imgui.set_next_window_size(imgui.ImVec2(500, 500), cond=imgui.Cond_.once)
+    visible, _ = imgui.begin("Lissajous Figure")
+    if visible:
+        state.update(dt)
+        dw.pygfx_canvas(
+            gui, state, "lissajous_2d", on_init=state.init_scene,
+            camera=state.camera, controller=state.controller,
+        )
+    imgui.end()
 
 
 def main() -> None:

@@ -1,144 +1,64 @@
-"""
-Widgets for embedding matplotlib figures into an imgui interface.
-
-The functions here are intended to be called from your UI update callback.  They
-wrap up the bookkeeping needed to resize figures, redraw them on demand and
-launch separate viewers for interactive inspection.
-"""
+"""Embedded Matplotlib figures using the same canvas as the standalone viewer."""
 
 import multiprocessing
 import pickle
 from typing import Any
 
-import numpy as np
-import wgpu
-from imgui_bundle import portable_file_dialogs as pfd
 from imgui_bundle import imgui
+from imgui_bundle import portable_file_dialogs as pfd
+from matplotlib import pyplot as plt
+from matplotlib.figure import Figure
 
-from deamat.mpl_view import MPLView
-
-# Set spawn method once at module load to avoid issues on macOS with forking
-try:
-    multiprocessing.set_start_method('spawn')
-except RuntimeError:
-    pass  # Already set
+from deamat.mpl_canvas import dispose_figure_view, draw_figure, get_figure_view
 
 
 def open_figure_in_pyplot(pickled_figure: bytes) -> None:
-    """Spawn a new process to view a pickled figure using MPLView."""
-    fig = pickle.loads(pickled_figure)
-    view = MPLView(fig)
-    view.run()
+    """Child-process entry point for a figure serialized by this application."""
+    from deamat.mpl_view import MPLView
+
+    MPLView(pickle.loads(pickled_figure)).run()
 
 
-def _render_figure_to_rgba(figure: Any) -> np.ndarray:
-    """Render a matplotlib figure to an RGBA numpy array.
-    
-    Parameters
-    ----------
-    figure : matplotlib.figure.Figure
-        The figure to render.
-        
-    Returns
-    -------
-    np.ndarray
-        RGBA image as uint8 array with shape (height, width, 4).
-    """
-    # Draw the figure to the canvas
-    figure.canvas.draw()
-    
-    # Get the RGBA buffer
-    w, h = figure.canvas.get_width_height()
-    buf = np.frombuffer(figure.canvas.buffer_rgba(), dtype=np.uint8)
-    buf = buf.reshape((h, w, 4))
-    
-    # Return a copy to ensure contiguous memory
-    return np.ascontiguousarray(buf)
+def _resolve_figure(gui, state, figname, width, height, autosize):
+    entry = state.figures[figname]
+    available = imgui.get_content_region_avail()
+    if autosize:
+        entry["width"] = max(1, int(available.x))
+        entry["height"] = max(1, int(available.y))
+    else:
+        if width is not None:
+            entry["width"] = max(1, int(width))
+        if height is not None:
+            entry["height"] = max(1, int(height))
+        if entry["width"] <= 0:
+            entry["width"] = max(1, int(available.x))
+        if entry["height"] <= 0:
+            entry["height"] = max(1, int(available.y))
+    if entry["dirty"] or entry["figure"] is None:
+        # Factories may use entry dimensions; resolve these before their first
+        # invocation. Resizing never regenerates data or reruns the factory.
+        previous = entry["figure"]
+        result = entry["make"](state)
+        if not isinstance(result, Figure):
+            raise TypeError(f"Figure factory {figname!r} must return a matplotlib Figure")
+        if previous is not None and previous is not result:
+            dispose_figure_view(gui, figname)
+            plt.close(previous)
+        entry["figure"] = result
+        entry["dirty"] = False
+        entry["texture_dirty"] = True
+    view = get_figure_view(gui, figname, entry["figure"])
+    if "_dispose_view" not in entry:
+        entry["_dispose_view"] = lambda: dispose_figure_view(gui, figname)
 
+        def close_owned_figure():
+            if state.figures.get(figname) is entry:
+                state.remove_figure(figname)
 
-def _get_or_create_texture(
-    gui: Any,
-    fig_id: str,
-    width: int,
-    height: int,
-) -> dict:
-    """Get or create a texture entry for a matplotlib figure.
-    
-    Parameters
-    ----------
-    gui : GUI
-        The deamat GUI instance.
-    fig_id : str
-        Unique identifier for this figure.
-    width : int
-        Texture width in pixels.
-    height : int
-        Texture height in pixels.
-        
-    Returns
-    -------
-    dict
-        Texture entry with keys: texture, texture_view, tex_ref, size
-    """
-    # Initialize registry if needed
-    if not hasattr(gui, '_mpl_textures'):
-        gui._mpl_textures = {}
-    
-    registry = gui._mpl_textures
-    device = gui.renderer.device
-    
-    # Check if we need to create or resize
-    needs_create = fig_id not in registry
-    if not needs_create:
-        entry = registry[fig_id]
-        if entry["size"] != (width, height):
-            # Size changed, need to recreate
-            gui.gui_renderer.backend.unregister_texture(entry["tex_ref"])
-            entry["texture"].destroy()
-            needs_create = True
-    
-    if needs_create:
-        # Create wgpu texture for the figure
-        texture = device.create_texture(
-            label=f"mpl_figure_{fig_id}",
-            size=(width, height, 1),
-            format=wgpu.TextureFormat.rgba8unorm,
-            usage=wgpu.TextureUsage.COPY_DST | wgpu.TextureUsage.TEXTURE_BINDING,
-        )
-        texture_view = texture.create_view()
-        
-        # Register with imgui backend
-        tex_ref = gui.gui_renderer.backend.register_texture(texture_view)
-        
-        registry[fig_id] = {
-            "texture": texture,
-            "texture_view": texture_view,
-            "tex_ref": tex_ref,
-            "size": (width, height),
-        }
-    
-    return registry[fig_id]
-
-
-def _upload_rgba_to_texture(gui: Any, texture: Any, rgba: np.ndarray) -> None:
-    """Upload RGBA data to a wgpu texture.
-    
-    Parameters
-    ----------
-    gui : GUI
-        The deamat GUI instance.
-    texture : wgpu.GPUTexture
-        The target texture.
-    rgba : np.ndarray
-        RGBA image data with shape (height, width, 4).
-    """
-    height, width = rgba.shape[:2]
-    gui.renderer.device.queue.write_texture(
-        destination={"texture": texture, "origin": (0, 0, 0)},
-        data=rgba,
-        data_layout={"bytes_per_row": width * 4, "rows_per_image": height},
-        size=(width, height, 1),
-    )
+        gui.add_cleanup(close_owned_figure)
+    if entry["texture_dirty"]:
+        view.invalidate()
+    return entry, view
 
 
 def figure(
@@ -149,83 +69,53 @@ def figure(
     height: int | None = None,
     autosize: bool = False,
 ) -> None:
-    """Render a matplotlib figure inside an imgui window.
+    """Embed a lazy figure with pan, zoom, history and editable properties.
 
-    Parameters
-    ----------
-    gui : GUI
-        The deamat GUI instance.
-    state : GUIState
-        The current GUI state containing the registered figures.
-    figname : str
-        The key under which the figure was registered via ``add_figure``.
-    width : int, optional
-        Desired width in pixels.  If ``autosize`` is True this value is ignored.
-    height : int, optional
-        Desired height in pixels.  If ``autosize`` is True this value is ignored.
-    autosize : bool, default False
-        If True, the figure will be resized to fill the available content region.
+    ``autosize`` fits the available region; otherwise registered or explicit
+    width/height set the image dimensions in logical pixels. Changes to artists
+    rerasterize automatically. ``state.invalidate_figure`` reruns the factory
+    only when its source data changes. Properties and actual-size mode preserve
+    the figure's intrinsic dimensions. Each figure owns independent controls.
     """
-    fig_entry = state.figures[figname]
-    
-    if autosize:
-        avail = imgui.get_content_region_avail()
-        fig_entry['width'] = max(1, int(avail.x))
-        fig_entry['height'] = max(1, int(avail.y))
-    else:
-        fig_entry['width'] = width if width is not None else fig_entry['width']
-        fig_entry['height'] = height if height is not None else fig_entry['height']
+    imgui.push_id(f"deamat-figure-{figname}")
+    try:
+        entry, view = _resolve_figure(gui, state, figname, width, height, autosize)
+        if imgui.button("Refresh data"):
+            state.invalidate_figure(figname)
+        imgui.same_line()
+        if imgui.button("Open in viewer"):
+            process = multiprocessing.get_context("spawn").Process(
+                target=open_figure_in_pyplot, args=(pickle.dumps(entry["figure"]),),
+            )
+            process.start()
+        imgui.same_line()
+        if imgui.button("Save image"):
+            path = pfd.save_file(
+                "Save figure", state.figure_path,
+                ["PNG image", "*.png", "PDF document", "*.pdf", "SVG image", "*.svg"],
+            ).result()
+            if path:
+                entry["figure"].savefig(path)
+                state.figure_path = path
+        imgui.same_line()
+        _, entry["_show_properties"] = imgui.checkbox("Properties", entry.get("_show_properties", False))
+        _, entry["_fit"] = imgui.checkbox("Fit figure", entry.get("_fit", True))
+        if entry["_show_properties"]:
+            from deamat.mpl_properties import FigureInspector
 
-    mpl_figure = fig_entry['figure']
-    title = fig_entry['title']
-    
-    # Check if we need to refresh the texture
-    needs_upload = fig_entry.get('texture_dirty', True)
-
-    # Buttons row
-    if imgui.button('Redraw ' + title):
-        state.invalidate_figure(figname)
-
-    imgui.same_line()
-
-    if imgui.button('Open in viewer'):
-        pickled_figure = pickle.dumps(mpl_figure)
-        p = multiprocessing.Process(target=open_figure_in_pyplot, args=(pickled_figure,))
-        p.start()
-
-    imgui.same_line()
-
-    if imgui.button('Save image'):
-        fpath = pfd.save_file(title + '.png', state.figure_path).result()
-        if len(fpath) > 0:
-            state.figure_path = fpath
-            mpl_figure.savefig(fpath)
-
-    # Get display size
-    display_width = int(fig_entry['width'])
-    display_height = int(fig_entry['height'])
-    
-    if display_width < 1 or display_height < 1:
-        return
-    
-    # Render figure to RGBA
-    rgba = _render_figure_to_rgba(mpl_figure)
-    img_height, img_width = rgba.shape[:2]
-    
-    # Get or create texture
-    tex_entry = _get_or_create_texture(gui, figname, img_width, img_height)
-    
-    # Upload if needed (always upload for now since figure may have changed)
-    # TODO: optimize by tracking figure content hash
-    _upload_rgba_to_texture(gui, tex_entry["texture"], rgba)
-    fig_entry['texture_dirty'] = False
-    
-    # Display the texture
-    imgui.image(
-        tex_entry["tex_ref"],
-        imgui.ImVec2(float(display_width), float(display_height)),
-    )
-
-
-# Keep old name as alias for backward compatibility
-im_plot_figure = figure
+            if "_inspector" not in entry:
+                entry["_inspector"] = FigureInspector()
+            visible, opened = imgui.begin(f"{entry['title']} properties##{figname}", True)
+            entry["_show_properties"] = opened
+            if visible and entry["_inspector"].draw(entry["figure"]):
+                view.invalidate()
+            imgui.end()
+        if autosize:
+            available = imgui.get_content_region_avail()
+            size = (max(1, available.x), max(1, available.y))
+        else:
+            size = (entry["width"], entry["height"])
+        draw_figure(gui, figname, entry["figure"], size=size, fit=entry["_fit"])
+        entry["texture_dirty"] = False
+    finally:
+        imgui.pop_id()

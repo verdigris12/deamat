@@ -41,10 +41,12 @@ class State(GUIState):
         # Lighting
         self.light: gfx.DirectionalLight | None = None
         self.light_intensity = 0.8
+        self._last_intensity = self.light_intensity
 
-        # Controller
-        self.controller: gfx.OrbitController | None = None
-        self.camera: gfx.PerspectiveCamera | None = None
+        self.camera = gfx.PerspectiveCamera(45, 4 / 3)
+        self.controller = gfx.OrbitController(self.camera, target=(0, 0, 0))
+        self.controller.controls["mouse1"] = ("rotate", "drag", (0.004, 0.004))
+        self.controller.controls["mouse2"] = ("pan", "drag", (0.8, 0.8))
 
     def init_scene(self, scene: gfx.Scene, camera: gfx.PerspectiveCamera):
         """Initialize the 3D scene with a box."""
@@ -65,18 +67,11 @@ class State(GUIState):
         # Add background
         scene.add(gfx.Background.from_color((0.1, 0.1, 0.1, 1.0)))
 
-        # Set up orbit controller with target at cube center
-        self.controller = gfx.OrbitController(target=(0, 0, 0))
-        self.controller.add_camera(camera)
-        
-        # Adjust control sensitivity (default multipliers are quite sensitive)
-        # Format: (action_name, mode, multiplier)
-        self.controller.controls["mouse1"] = ("rotate", "drag", (0.004, 0.004))  # Reduce rotate speed
-        self.controller.controls["mouse2"] = ("pan", "drag", (0.8, 0.8))  # Reduce pan speed
 
         # Position camera
         camera.local.position = (5, 3, 5)
-        camera.look_at((0, 0, 0))
+        camera.show_pos((0, 0, 0))
+        self.update(0.0)
 
     def update(self, dt: float) -> None:
         """Update scene state each frame."""
@@ -99,60 +94,45 @@ class State(GUIState):
             self.mesh.material.color = self.box_color
             self._last_color = self.box_color
 
-        # Update light intensity
-        if self.light is not None:
+        if self.light is not None and self.light_intensity != self._last_intensity:
             self.light.intensity = self.light_intensity
+            self._last_intensity = self.light_intensity
 
 
 def update_ui(state: State, gui: dGUI, dt: float) -> None:
-    """Callback executed each frame to build the UI."""
-
-    # 3D view with orbit controls
-    imgui.set_next_window_size(imgui.ImVec2(640, 480), cond=imgui.Cond_.once)
-    imgui.begin("pygfx Orbit Controls")
-    
-    # Pass the controller to enable mouse interaction
-    dw.pygfx_canvas(
-        gui, state, "main_3d",
-        on_init=state.init_scene,
-        controller=state.controller,
-    )
-    imgui.end()
-
-    # Controls panel
+    """Apply visible controls before updating and rendering the scene."""
     imgui.set_next_window_size(imgui.ImVec2(300, 250), cond=imgui.Cond_.once)
-    imgui.begin("Controls")
-
-    imgui.text("Mouse Controls:")
-    imgui.bullet_text("Left drag: Orbit")
-    imgui.bullet_text("Right drag: Pan")
-    imgui.bullet_text("Scroll: Zoom")
-    
-    imgui.separator()
-    imgui.text("Box Rotation")
-    _, state.box_rot[0] = imgui.slider_float("X (deg)", state.box_rot[0], -180.0, 180.0)
-    _, state.box_rot[1] = imgui.slider_float("Y (deg)", state.box_rot[1], -180.0, 180.0)
-    _, state.box_rot[2] = imgui.slider_float("Z (deg)", state.box_rot[2], -180.0, 180.0)
-    _, state.auto_rotate = imgui.checkbox("Auto-rotate", state.auto_rotate)
-    if state.auto_rotate:
-        _, state.rotate_speed = imgui.slider_float("Speed (deg/s)", state.rotate_speed, 10.0, 180.0)
-
-    imgui.separator()
-    imgui.text("Appearance")
-    
-    c0 = list(state.box_color)
-    changed_color, c = imgui.color_edit4("Box Color", c0)
-    if changed_color:
-        state.box_color = tuple(c)
-
-    _, state.light_intensity = imgui.slider_float(
-        "Light Intensity", state.light_intensity, 0.0, 2.0
-    )
-
+    visible, _ = imgui.begin("Controls")
+    if visible:
+        imgui.text("Mouse Controls:")
+        imgui.bullet_text("Left drag: Orbit")
+        imgui.bullet_text("Right drag: Pan")
+        imgui.bullet_text("Scroll: Zoom")
+        imgui.separator()
+        imgui.text("Box Rotation")
+        _, state.box_rot[0] = imgui.slider_float("X (deg)", state.box_rot[0], -180.0, 180.0)
+        _, state.box_rot[1] = imgui.slider_float("Y (deg)", state.box_rot[1], -180.0, 180.0)
+        _, state.box_rot[2] = imgui.slider_float("Z (deg)", state.box_rot[2], -180.0, 180.0)
+        _, state.auto_rotate = imgui.checkbox("Auto-rotate", state.auto_rotate)
+        if state.auto_rotate:
+            _, state.rotate_speed = imgui.slider_float("Speed (deg/s)", state.rotate_speed, 10.0, 180.0)
+        imgui.separator()
+        imgui.text("Appearance")
+        changed_color, color = imgui.color_edit4("Box Color", list(state.box_color))
+        if changed_color:
+            state.box_color = tuple(color)
+        _, state.light_intensity = imgui.slider_float("Light Intensity", state.light_intensity, 0.0, 2.0)
     imgui.end()
 
-    # Update scene state
-    state.update(dt)
+    imgui.set_next_window_size(imgui.ImVec2(640, 480), cond=imgui.Cond_.once)
+    visible, _ = imgui.begin("pygfx Orbit Controls")
+    if visible:
+        state.update(dt)
+        dw.pygfx_canvas(
+            gui, state, "main_3d", on_init=state.init_scene,
+            camera=state.camera, controller=state.controller,
+        )
+    imgui.end()
 
 
 def main() -> None:
