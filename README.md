@@ -105,9 +105,19 @@ Construct and run `GUI` on the main thread. GUI state and all Matplotlib/ImGui/G
 
 `GUI(..., update_mode="continuous", max_fps=60)` controls the rendercanvas scheduler. `update_mode="ondemand"` is useful for non-animated applications: input and posted work request frames; call `gui.request_draw()` when external state needs a frame.
 
-Docked ImGui windows can be dragged into native desktop windows on supported GLFW platforms. `GUI(..., viewports=False)` disables detachment; Wayland remains single-window. All viewports share the same GPU device and texture registry. `gui.get_pixel_ratio()` returns the current ImGui viewport's framebuffer ratio, or the main window's ratio outside a frame. `gui.add_input_handler(callback, *event_types)` and `remove_input_handler` subscribe to `pointer_up`, `key_down`, `key_up`, and application-wide `focus_out` events from any viewport. Pointer coordinates are in ImGui screen space (window-local when viewports are disabled).
-
 See `examples/4-async_update.py` and `examples/7-main-thread-dispatch.py` for executable usage.
+
+## Native windows
+
+On GLFW/X11, ImGui panels can be dragged outside the main window and docked back inside it. This is enabled by default; `GUI(..., viewports=False)` keeps panels inside the main window. The GLFW platform backend does not support detached viewports on native Wayland, so deamat leaves them disabled there. Other rendercanvas backends retain single-window rendering.
+
+All windows share one ImGui context, WGPU device and texture registry. Detached pygfx widgets sample the same GPU textures without CPU image readback. Matplotlib still rasterizes through Agg on the CPU and uploads only when dirty; moving a panel does not rebuild its figure or rerasterize an unchanged image. Each native window has its own presentation surface, not a separate rendering process.
+
+`gui.get_pixel_ratio()` returns the current ImGui viewport's framebuffer ratio, or the main window's ratio outside a frame. It is not the monitor's content scale. The retained widgets use it when their backing image dimensions change.
+
+`gui.add_input_handler(callback, *event_types)` and `remove_input_handler` subscribe to `pointer_up`, `key_down`, `key_up`, and application-wide `focus_out` events from any viewport. Pointer coordinates are in ImGui screen space (global desktop coordinates when viewports are enabled, window-local otherwise). Native input also wakes on-demand rendering; deferred ImGui input is drained before the GUI returns to idle.
+
+The Python GLFW binding and imgui-bundle must use the same GLFW library. Import `deamat` or `imgui_bundle` before importing `glfw`; deamat rejects mismatched libraries rather than passing window pointers between them.
 
 ## pygfx scenes
 
