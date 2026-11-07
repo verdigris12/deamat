@@ -33,7 +33,13 @@ def _worker(state_path):
             Path(state_path).write_text(json.dumps({"frame": frames, "open": False}))
             return
         dock_host_viewport = imgui.get_window_viewport().id_
-        imgui.set_next_window_pos((2700, 1200), imgui.Cond_.first_use_ever)
+        main_vp = imgui.get_main_viewport()
+        # Place the pane outside the actual main viewport so this is an
+        # intentional detach even when the compositor initially tiles main.
+        x = main_vp.pos.x + main_vp.size.x + 100
+        if x + 450 > 4480:
+            x = 100
+        imgui.set_next_window_pos((x, 1500), imgui.Cond_.first_use_ever)
         imgui.set_next_window_size((450, 600), imgui.Cond_.first_use_ever)
         visible, opened = imgui.begin("Viewport acceptance pane", opened)
         vp = imgui.get_window_viewport()
