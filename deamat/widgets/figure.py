@@ -1,15 +1,16 @@
 """Embedded Matplotlib figures using the same canvas as the standalone viewer."""
 
 import multiprocessing
+from pathlib import Path
 import pickle
 from typing import Any
 
 from imgui_bundle import imgui
-from imgui_bundle import portable_file_dialogs as pfd
 from matplotlib import pyplot as plt
 from matplotlib.figure import Figure
 
 from deamat.mpl_canvas import dispose_figure_view, draw_figure, get_figure_view
+from .file_dialog import FileDialog
 
 
 def open_figure_in_pyplot(pickled_figure: bytes) -> None:
@@ -90,16 +91,34 @@ def figure(
             process.start()
         imgui.same_line()
         if imgui.button("Save image"):
-            path = pfd.save_file(
-                "Save figure", state.figure_path,
-                ["PNG image", "*.png", "PDF document", "*.pdf", "SVG image", "*.svg"],
-            ).result()
-            if path:
-                entry["figure"].savefig(path)
-                state.figure_path = path
+            try:
+                if "_save_dialog" not in entry:
+                    entry["_save_dialog"] = FileDialog(gui)
+                directory = Path(state.figure_path).expanduser()
+                if not directory.is_dir():
+                    directory = directory.parent
+                entry["_save_dialog"].save(
+                    "Save figure", "PNG image{.png},PDF document{.pdf},SVG image{.svg}",
+                    str(directory) if directory.is_dir() else "",
+                )
+                entry["_save_error"] = ""
+            except Exception as error:
+                entry["_save_error"] = str(error)
+        if "_save_dialog" in entry:
+            result = entry["_save_dialog"].draw()
+            if result is not None and result.paths:
+                try:
+                    path = result.paths[0]
+                    entry["figure"].savefig(path)
+                    state.figure_path = str(path)
+                    entry["_save_error"] = ""
+                except Exception as error:
+                    entry["_save_error"] = str(error)
         imgui.same_line()
         _, entry["_show_properties"] = imgui.checkbox("Properties", entry.get("_show_properties", False))
         _, entry["_fit"] = imgui.checkbox("Fit figure", entry.get("_fit", True))
+        if entry.get("_save_error"):
+            imgui.text_wrapped(f"Save failed: {entry['_save_error']}")
         if entry["_show_properties"]:
             from deamat.mpl_properties import FigureInspector
 

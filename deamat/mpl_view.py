@@ -7,20 +7,21 @@ SVG export are available without serializing Python objects.
 from pathlib import Path
 import pickle
 
-from imgui_bundle import imgui, portable_file_dialogs as pfd
+from imgui_bundle import imgui
 from matplotlib.figure import Figure
 
 from .gui import GUI
 from .guistate import GUIState
 from .mpl_canvas import draw_figure, get_figure_view
 from .mpl_properties import FigureInspector
+from .widgets.file_dialog import FileDialog
 
 
-PICKLE_FILTERS = ["Matplotlib pickle (*.pkl, *.pickle)", "*.pkl *.pickle", "All files", "*"]
+PICKLE_FILTERS = "Matplotlib pickle{.pkl,.pickle},.*"
 EXPORT_FILTERS = {
-    "png": ["PNG image (*.png)", "*.png"],
-    "pdf": ["PDF document (*.pdf)", "*.pdf"],
-    "svg": ["SVG image (*.svg)", "*.svg"],
+    "png": "PNG image{.png}",
+    "pdf": "PDF document{.pdf}",
+    "svg": "SVG image{.svg}",
 }
 
 
@@ -55,37 +56,64 @@ class MPLView:
         self.gui.update = self.update_ui
         self._dialog = None
         self._dialog_action = None
-        self.gui.add_cleanup(self._close_dialog)
+        self._dialog_request = None
 
-    def _close_dialog(self):
-        if self._dialog is not None:
-            self._dialog.kill()
-            self._dialog = None
+    def _draw_dialogs(self):
+        # Open and draw in one stable scope, never inside a transient menu.
+        if self._dialog_request == "trust":
+            self._dialog_request = None
+            self._dialog_action = "trust"
+            imgui.open_popup("Open trusted pickle")
+        imgui.set_next_window_size((460, 0), imgui.Cond_.appearing)
+        visible, opened = imgui.begin_popup_modal(
+            "Open trusted pickle", True, imgui.WindowFlags_.always_auto_resize
+        )
+        if visible:
+            imgui.text_wrapped(
+                "Pickle files can execute arbitrary code. Only open files from a source you trust."
+            )
+            imgui.spacing()
+            if imgui.button("Open trusted file"):
+                self._dialog_request = "open"
+                self._dialog_action = None
+                imgui.close_current_popup()
+            imgui.same_line()
+            if imgui.button("Cancel") or imgui.is_key_pressed(imgui.Key.escape):
+                self._dialog_action = None
+                imgui.close_current_popup()
+            imgui.end_popup()
+        if not opened and self._dialog_action == "trust":
+            self._dialog_action = None
 
-    def _start_dialog(self, dialog, action):
-        self._dialog = dialog
-        self._dialog_action = action
-
-    def _poll_dialog(self):
-        if self._dialog is None or not self._dialog.ready(0):
-            return
-        dialog, action = self._dialog, self._dialog_action
-        self._dialog = None
-        self._dialog_action = None
         try:
-            result = dialog.result()
-            if action == "trust":
-                if result == pfd.button.yes:
-                    self._start_dialog(pfd.open_file("Open trusted Matplotlib pickle", "", PICKLE_FILTERS), "open")
-            elif action == "open" and result:
-                self.open_trusted(result[0])
-            elif action == "pickle" and result:
-                self.save_pickle(result)
-            elif action in EXPORT_FILTERS and result:
-                self.export(result, action)
+            if self._dialog_request is not None:
+                action, self._dialog_request = self._dialog_request, None
+                if self._dialog is None:
+                    self._dialog = FileDialog(self.gui)
+                if action == "open":
+                    self._dialog.open("Open trusted Matplotlib pickle", PICKLE_FILTERS)
+                elif action == "pickle":
+                    self._dialog.save("Save Matplotlib pickle", PICKLE_FILTERS)
+                else:
+                    self._dialog.save(f"Export {action.upper()}", EXPORT_FILTERS[action])
+                self._dialog_action = action
+            if self._dialog is None:
+                return
+            result = self._dialog.draw()
+            if result is None:
+                return
+            action, self._dialog_action = self._dialog_action, None
+            if not result.paths:
+                return
+            if action == "open":
+                self.open_trusted(result.paths[0])
+            elif action == "pickle":
+                self.save_pickle(result.paths[0])
+            else:
+                self.export(result.paths[0], action)
         except Exception as error:
             # A file/serialization boundary: the full error remains visible.
-            self.state.error = f"{action}: {type(error).__name__}: {error}"
+            self.state.error = f"File operation: {type(error).__name__}: {error}"
 
     def open_trusted(self, filename):
         figure = load_trusted_figure(filename)
@@ -120,17 +148,15 @@ class MPLView:
         if not imgui.begin_main_menu_bar():
             return
         if imgui.begin_menu("File"):
-            available = self._dialog is None
+            available = self._dialog_action is None and self._dialog_request is None
             if imgui.menu_item("Open trusted pickle...", "", False, available)[0]:
-                self._start_dialog(pfd.message(
-                    "Trust required", "Pickle files can execute arbitrary code. Only open files from a source you trust. Continue?",
-                    pfd.choice.yes_no, pfd.icon.warning), "trust")
+                self._dialog_request = "trust"
             if imgui.menu_item("Save pickle...", "", False, available)[0]:
-                self._start_dialog(pfd.save_file("Save Matplotlib pickle (trusted use only)", "figure.pkl", PICKLE_FILTERS), "pickle")
+                self._dialog_request = "pickle"
             imgui.separator()
-            for format, filters in EXPORT_FILTERS.items():
+            for format in EXPORT_FILTERS:
                 if imgui.menu_item(f"Export {format.upper()}...", "", False, available)[0]:
-                    self._start_dialog(pfd.save_file(f"Export {format.upper()}", f"figure.{format}", filters), format)
+                    self._dialog_request = format
             imgui.separator()
             if imgui.menu_item("Close", "", False)[0]:
                 self.gui.close()
@@ -143,8 +169,10 @@ class MPLView:
         imgui.end_main_menu_bar()
 
     def update_ui(self, state, gui, dt):
-        self._poll_dialog()
         self._menu()
+        if gui._closed:
+            return
+        self._draw_dialogs()
         viewport = imgui.get_main_viewport()
         top = viewport.pos.y + imgui.get_frame_height()
         height = max(100, viewport.size.y - imgui.get_frame_height())

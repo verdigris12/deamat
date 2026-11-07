@@ -5,3 +5,5 @@ venv
 .aider*
 *.egg-info
 .nix
+.cache/deamat-imgui-bundle/
+dist/

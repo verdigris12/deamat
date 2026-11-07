@@ -7,7 +7,7 @@
       systems = [ "x86_64-linux" "aarch64-linux" ];
       forAll  = f: builtins.listToAttrs (map (s: { name = s; value = f s; }) systems);
     in {
-      devShells = forAll (system:
+      packages = forAll (system:
         let
           pkgs = import nixpkgs { inherit system; };
           fhs  = pkgs.buildFHSEnvBubblewrap {
@@ -24,12 +24,17 @@
               gcc cmake ninja
 
               # OpenGL/Graphics (for imgui, vispy)
-              libGL libGLU mesa
+              libGL libGL.dev libGLU libGLU.dev mesa
 
               # X11 (for GLFW) - includes .dev for headers
               xorg.libX11 xorg.libX11.dev xorg.xorgproto
-              xorg.libXi xorg.libXrandr xorg.libXext 
-              xorg.libXinerama xorg.libXxf86vm xorg.libXcursor
+              xorg.libXi xorg.libXi.dev
+              xorg.libXrandr xorg.libXrandr.dev
+              xorg.libXext xorg.libXext.dev
+              xorg.libXinerama xorg.libXinerama.dev
+              xorg.libXxf86vm xorg.libXcursor xorg.libXcursor.dev
+              xorg.libXrender xorg.libXrender.dev
+              xorg.libXfixes xorg.libXfixes.dev
 
               # For vispy fonts
               freetype fontconfig
@@ -41,6 +46,7 @@
 
             profile = ''
               export DEVSHELL="DEAMAT"
+              export CMAKE_ARGS="-DCMAKE_FIND_ROOT_PATH=/ -DCMAKE_PREFIX_PATH=/usr ''${CMAKE_ARGS:-}"
               if [ ! -d .venv ]; then
                 uv venv
               fi
@@ -49,7 +55,16 @@
             '';
           };
         in {
-          default = fhs.env;
+          default = fhs;
         });
+      devShells = forAll (system: {
+        default = self.packages.${system}.default.env;
+      });
+      apps = forAll (system: {
+        default = {
+          type = "app";
+          program = "${self.packages.${system}.default}/bin/deamat-fhs";
+        };
+      });
     };
 }

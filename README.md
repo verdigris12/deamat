@@ -2,21 +2,27 @@
 
 Python GUI components for exploratory scientific applications: Dear ImGui, an interactive Matplotlib viewer, pygfx scenes, background coroutines and process jobs.
 
-Requires Python 3.11+ and a desktop graphics environment supported by wgpu. Python dependencies install with uv; the OS must provide working window-system and graphics drivers. On Linux, native file dialogs also need a supported dialog helper such as Zenity or KDialog.
+Requires Python 3.11+ and a desktop graphics environment supported by wgpu. Python dependencies install with uv; the OS must provide working window-system and graphics drivers. Embedded file dialogs use ImFileDialog through WGPU, not Zenity, KDialog, or a second OpenGL renderer.
 
 `imgui-bundle` is pinned to 1.92.0: the wgpu 0.29 ImGui backend uses draw-data APIs removed by later 1.92 builds. Upgrade the binding and backend together, with a native rendering smoke test.
 
 ## Install and run
 
-From a checkout:
+From a checkout, rebuild the pinned imgui-bundle source with the texture-callback patch:
 
 ```sh
 uv sync --locked
-uv run deamat-demo
-uv run mplview --trust-pickle figure.pkl
+CMAKE_BUILD_PARALLEL_LEVEL=4 sh build-imgui-bundle.sh
+uv pip install --no-deps --no-index --find-links dist 'imgui-bundle==1.92.0+deamat.1'
+uv run --no-sync deamat-demo
+uv run --no-sync mplview --trust-pickle figure.pkl
 ```
 
-Install the command-line tools from a checkout with `uv tool install .`. To use the library in another uv project, use `uv add /path/to/deamat`; published repository revisions can be installed with `uv add git+https://github.com/verdigris12/deamat`.
+The build requires Git, uv, CMake, Ninja, a C++ compiler, and the upstream X11/OpenGL development headers on Linux. On NixOS, use `nix develop`, or run commands through `nix run . -- -c 'command'`; the flake supplies these build dependencies without changing its nixpkgs pin. `DEAMAT_IMGUI_BUILD_DIR` selects the retained source/build cache; the default is `.cache/deamat-imgui-bundle`.
+
+The public imgui-bundle 1.92.0 wheel does **not** expose ImFileDialog's texture callbacks. `imgui-bundle-deamat.patch` adds those bindings and identifies the local wheel as `1.92.0+deamat.1`; `imgui-bundle-build-constraints.txt` pins compatible binding build tools. No upstream fork or binary release is assumed. The built wheel is specific to its Python version and platform.
+
+`uv sync` or a normal `uv run` can replace the patched wheel with the public version from `uv.lock`. Reinstall the patched wheel after syncing and use `uv run --no-sync`, or lock the built wheel as a direct dependency in the consuming project. Other projects can add this checkout with `uv add /path/to/deamat` and add the matching wheel with `uv add /path/to/imgui_bundle-...whl`. For an isolated CLI installation, use `uv tool install --with /path/to/imgui_bundle-...whl .`.
 
 **Pickle is executable Python, not a safe interchange format.** `mplview` requires `--trust-pickle`; the File menu asks for confirmation before opening a pickle. Never open an untrusted figure. PNG, PDF and SVG export do not require pickle.
 
@@ -90,7 +96,43 @@ Factories are lazy. `invalidate_figure()` marks source data dirty and reruns the
 
 For an existing figure, `deamat.mpl_canvas.draw_figure(gui, id, figure, size=None, fit=False, toolbar=True)` draws the same canvas and returns its `FigureView`. `deamat.mpl_properties.FigureInspector` can be retained alongside it; invalidate the view when `inspector.draw(figure)` returns true. Figure removal and GUI shutdown dispose callbacks and textures.
 
-The embedded widget includes **Properties**, **Fit figure**, **Refresh data**, **Open in viewer** and **Save image**. Opening a separate viewer transfers a trusted in-process figure via pickle and requires a normal `if __name__ == "__main__"` entry point. The embedded Save image dialog is synchronous; standalone dialogs are polled without blocking frame updates.
+The embedded widget includes **Properties**, **Fit figure**, **Refresh data**, **Open in viewer** and **Save image**. Opening a separate viewer transfers a trusted in-process figure via pickle and requires a normal `if __name__ == "__main__"` entry point. Both embedded and standalone file dialogs are drawn without blocking frame updates.
+
+## Embedded file dialogs
+
+Retain a `FileDialog` for its owning GUI and draw it in the same ImGui window and ID scope every frame:
+
+```python
+from deamat import GUI, GUIState, imgui
+from deamat.widgets import FileDialog
+
+
+def main():
+    gui = GUI(GUIState())
+    picker = FileDialog(gui)
+
+    def update(state, gui, dt):
+        imgui.begin("Files")
+        if imgui.button("Open files"):
+            picker.open("Open files", "JSON files{.json},.*", multiselect=True)
+        result = picker.draw()
+        if result is not None:
+            state.paths = result.paths
+        imgui.end()
+
+    gui.update = update
+    gui.run()
+
+
+if __name__ == "__main__":
+    main()
+```
+
+`open`, `save`, and `select_folder` start a request; `active` reports whether one is pending. Starting another request on the same picker while active raises `RuntimeError`. `draw()` returns `None` while pending or idle, then one `DialogResult` containing a tuple of `pathlib.Path` objects. An empty tuple means cancellation. `save()` requires confirmation before returning an existing destination. The picker selects paths; the application performs the actual file I/O.
+
+`starting_dir` is a directory, not a suggested filename; the bundled widget has no public filename-preset API. File filters use ImFileDialog syntax, for example `"Images{.png,.jpg},.*"`. Image thumbnails and icons use the owning GUI's WGPU texture registry, including detached viewports.
+
+GUI shutdown closes the picker and releases its callbacks and textures. An explicit `close()` permanently disposes it; an already-drawn active dialog must be closed in its original drawing frame and ID scope. Construction with an unpatched binding fails clearly rather than switching to another file browser.
 
 ## Threads, coroutines and jobs
 
@@ -130,12 +172,12 @@ Use `continuous=False` for static scenes and call `invalidate()` after scene cha
 ## Development
 
 ```sh
-uv sync --locked
-uv run pytest -q
+# Install the patched binding as described above first.
+uv run --no-sync pytest -q
 uv build
 ```
 
-Tests that construct a GUI require a display and working wgpu driver. On a headless Linux machine, provide Xvfb and a software Vulkan implementation, then use `xvfb-run -a uv run pytest -q`. The repository also contains a Nix development flake; native driver availability remains host-specific.
+Tests that construct a GUI require a display and working wgpu driver. On a headless Linux machine, provide Xvfb and a software Vulkan implementation, then use `xvfb-run -a uv run --no-sync pytest -q`. Native driver availability remains host-specific; choose a working Vulkan ICD explicitly if automatic driver discovery fails.
 
 The interactive, self-contained viewer design draft is `.ui-drafts/figure-viewer/v1.html`. It uses a labelled SVG sample, not the Python renderer; native screenshots beside it document the implemented surface. It can be opened directly in a browser, or served with the accompanying localhost-only review server for persisted feedback.
 
