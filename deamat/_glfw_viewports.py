@@ -26,6 +26,16 @@ def _address(window):
     return ctypes.cast(window, ctypes.c_void_p).value
 
 
+def _sync_viewport_geometry(viewport, window):
+    """Tell ImGui about native geometry changes before it begins a frame."""
+    x, y = glfw.get_window_pos(window)
+    width, height = glfw.get_window_size(window)
+    if (x, y) != (viewport.pos.x, viewport.pos.y):
+        viewport.platform_request_move = True
+    if (width, height) != (viewport.size.x, viewport.size.y):
+        viewport.platform_request_resize = True
+
+
 class NativeImguiRenderer:
     """One ImGui context and shared WGPU backend, without canvas input hooks."""
 
@@ -187,6 +197,11 @@ class GlfwViewportHost:
     def render(self):
         imgui.set_current_context(self.renderer.imgui_context)
         imgui.backends.glfw_new_frame()
+        if self.enabled:
+            for viewport in imgui.get_platform_io().viewports:
+                window = _window(viewport)
+                if window and _address(window) != _address(self.main):
+                    _sync_viewport_geometry(viewport, window)
         if self.focus_pending:
             self.focus_pending = False
             if not any(glfw.get_window_attrib(window, glfw.FOCUSED) for window, _ in self.callbacks.values()):
@@ -223,12 +238,23 @@ class GlfwViewportHost:
                 surface = wgpu.gpu.get_canvas_context(get_glfw_present_info(window))
                 surface.configure(device=self.renderer.backend._device, format=self.renderer.backend._target_format)
                 self.surfaces[address] = surface
+                # Creation and window-manager placement can happen after this
+                # frame's layout, before our callbacks have been installed.
+                self.gui.request_draw()
             surface.set_physical_size(*size)
-            if viewport.draw_data and viewport.draw_data.display_size.x and viewport.draw_data.display_size.y:
-                viewport.draw_data.framebuffer_scale = (
-                    size[0] / viewport.draw_data.display_size.x,
-                    size[1] / viewport.draw_data.display_size.y,
-                )
+            logical_size = glfw.get_window_size(window)
+            draw_data = viewport.draw_data
+            if not draw_data or logical_size[0] <= 0 or logical_size[1] <= 0:
+                continue
+            if (draw_data.display_size.x, draw_data.display_size.y) != logical_size:
+                # The WM changed the client size after layout. Drawing it now
+                # either stretches the old layout or exceeds the attachment.
+                self.gui.request_draw()
+                continue
+            draw_data.framebuffer_scale = (
+                size[0] / logical_size[0],
+                size[1] / logical_size[1],
+            )
             self._draw(viewport.draw_data, surface.get_current_texture().create_view())
             surface.present()
         for address in self.surfaces.keys() - active:
