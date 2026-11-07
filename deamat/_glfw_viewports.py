@@ -246,28 +246,48 @@ class GlfwViewportHost:
         pixels, _ = glfw.get_framebuffer_size(window)
         return pixels / width if width else self.gui.canvas.get_pixel_ratio()
 
-    def _retire_windows(self, addresses):
+    def _retire_surfaces(self, addresses):
         for address in addresses:
             surface = self.surfaces.pop(address, None)
             if surface is not None:
                 surface.unconfigure()
+                # wgpu-py unconfigure drops the swapchain but not the raw
+                # surface. Release it while its native window is still alive.
+                surface._release()
+
+    def _retire_windows(self, addresses):
+        self._retire_surfaces(addresses)
+        for address in addresses:
             self.callbacks.pop(address, None)
 
     def _update_platform_windows(self):
         # Render initialized DrawDataP.owner_viewport for every internal
         # viewport, including viewports omitted from the public render list.
         snapshot = []
-        for internal in imgui.get_current_context().viewports:
+        imminent = set()
+        context = imgui.get_current_context()
+        for internal in context.viewports:
             viewport = internal.draw_data_p.owner_viewport
             window = _window(viewport) if viewport else None
             if window:
-                snapshot.append((viewport, _address(window)))
+                address = _address(window)
+                snapshot.append((viewport, address))
+                owner = internal.window
+                # Match ImGui 1.92's UpdatePlatformWindows destruction test.
+                if address != _address(self.main) and (
+                    internal.last_frame_active < context.frame_count - 1
+                    or (owner is not None and (not owner.active or owner.hidden))
+                ):
+                    imminent.add(address)
 
         # NewFrame may already have destroyed a viewport. Retire its resources
         # before UpdatePlatformWindows can allocate another GLFW window there.
         live = {address for _, address in snapshot}
         live.add(_address(self.main))
         self._retire_windows((self.surfaces.keys() | self.callbacks.keys()) - live)
+        # Renderer destruction must precede platform destruction; keep the
+        # ctypes callbacks until after GLFW has actually destroyed the window.
+        self._retire_surfaces(imminent)
 
         # Keep ctypes callbacks alive through native destruction. Viewport
         # objects themselves remain valid until a subsequent NewFrame.
@@ -384,9 +404,7 @@ class GlfwViewportHost:
         device.queue.submit([encoder.finish()])
 
     def close(self):
-        for surface in self.surfaces.values():
-            surface.unconfigure()
-        self.surfaces.clear()
+        self._retire_surfaces(tuple(self.surfaces))
         # Restore only the live main window; platform destruction owns secondary windows.
         window, callbacks = self.callbacks.pop(_address(self.main))
         for setter, callback, previous in callbacks:

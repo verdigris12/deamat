@@ -136,6 +136,20 @@ def test_callback_survives_render_list_omission_until_native_destruction(monkeyp
         assert window and viewport_id != imgui.get_main_viewport().id_
         address = _address(window)
         assert address in host.callbacks and address in host.surfaces
+        surface = host.surfaces[address]
+        release = surface._release
+        released = []
+
+        def release_while_window_alive():
+            current = imgui.find_viewport_by_id(viewport_id)
+            native = _window(current) if current else None
+            assert native and _address(native) == address
+            assert all(size > 0 for size in glfw.get_window_size(native))
+            assert address in host.callbacks
+            released.append(True)
+            release()
+
+        monkeypatch.setattr(surface, "_release", release_while_window_alive)
 
         # Model the ImGui frame where the native viewport still exists but is
         # omitted from the renderer-facing PlatformIO viewport list.
@@ -152,6 +166,7 @@ def test_callback_survives_render_list_omission_until_native_destruction(monkeyp
         for _ in range(5):
             frame()
         assert address not in host.callbacks and address not in host.surfaces
+        assert released == [True]
         assert not gui.errors
     finally:
         gui.close()

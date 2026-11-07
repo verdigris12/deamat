@@ -157,7 +157,7 @@ Detached windows stay separate when they overlap the main window; docking requir
 
 Only already-detached ordinary panes opt out of automatic merging. Main-owned modal dialogs, nested popups and tooltips retain ImGui's normal viewport ownership instead of being forced into separate native windows.
 
-Native input callbacks and presentation surfaces remain alive until ImGui has actually destroyed their platform window, including transitions where a still-live viewport is temporarily absent from the rendering list. The main surface synchronizes against the native framebuffer before layout; if a resize races layout, rendering resumes on the next frame with matching dimensions.
+Native input callbacks stay alive through platform-window destruction, including transitions where a still-live viewport is temporarily absent from the rendering list. Its presentation surface is unconfigured and released before the native window is destroyed. The main surface synchronizes against the native framebuffer before layout; if a resize races layout, rendering resumes on the next frame with matching dimensions.
 
 On X11, secondary windows use the `DeamatViewport` class, `deamat-viewport` instance and utility window type; the main window's identity is unchanged. They are not forced always-on-top. For Sway/XWayland, add this narrowly scoped rule to your Sway configuration:
 

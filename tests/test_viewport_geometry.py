@@ -17,9 +17,11 @@ def test_reused_native_address_retires_old_resources_before_install(monkeypatch)
     old = SimpleNamespace(window=21, id_=1)
     stable = SimpleNamespace(window=22, id_=2)
     new = SimpleNamespace(window=None, id_=3)
-    context = SimpleNamespace(viewports=[
-        SimpleNamespace(draw_data_p=SimpleNamespace(owner_viewport=old)),
-        SimpleNamespace(draw_data_p=SimpleNamespace(owner_viewport=stable)),
+    context = SimpleNamespace(frame_count=100, viewports=[
+        SimpleNamespace(draw_data_p=SimpleNamespace(owner_viewport=old),
+                        last_frame_active=99, window=SimpleNamespace(active=False, hidden=False)),
+        SimpleNamespace(draw_data_p=SimpleNamespace(owner_viewport=stable),
+                        last_frame_active=100, window=SimpleNamespace(active=True, hidden=False)),
     ])
     host = backend.GlfwViewportHost.__new__(backend.GlfwViewportHost)
     host.main = 1
@@ -34,6 +36,8 @@ def test_reused_native_address_retires_old_resources_before_install(monkeypatch)
         # The already-deleted window is retired first; the old callback stays
         # referenced while GLFW destroys its window.
         assert 23 not in host.callbacks and 21 in host.callbacks
+        old_surface.unconfigure.assert_called_once()
+        old_surface._release.assert_called_once()
         old.window = None
         new.window = 21  # allocator reuses the address in the same update
         stable.id_ = 99  # in-place viewport ID reassignment is not destruction
@@ -46,7 +50,67 @@ def test_reused_native_address_retires_old_resources_before_install(monkeypatch)
     assert 22 in host.callbacks and host.surfaces[22] is stable_surface
     old_surface.unconfigure.assert_called_once()
     stale_surface.unconfigure.assert_called_once()
+    stale_surface._release.assert_called_once()
+    stable_surface._release.assert_not_called()
     stable_surface.unconfigure.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "last_active,active,hidden,retire",
+    [(99, True, False, False), (98, True, False, True),
+     (100, True, True, True), (100, False, False, True)],
+)
+def test_surface_released_before_imminent_platform_destruction(
+        monkeypatch, last_active, active, hidden, retire):
+    from deamat import _glfw_viewports as backend
+
+    viewport = SimpleNamespace(window=21)
+    internal = SimpleNamespace(draw_data_p=SimpleNamespace(owner_viewport=viewport),
+                               last_frame_active=last_active,
+                               window=SimpleNamespace(active=active, hidden=hidden))
+    context = SimpleNamespace(frame_count=100, viewports=[internal])
+    surface = Mock()
+    host = backend.GlfwViewportHost.__new__(backend.GlfwViewportHost)
+    host.main = 1
+    host.callbacks = {1: object(), 21: object()}
+    host.surfaces = {21: surface}
+    monkeypatch.setattr(backend.imgui, "get_current_context", lambda: context)
+    monkeypatch.setattr(backend, "_window", lambda v: v.window)
+    monkeypatch.setattr(backend, "_address", lambda window: window)
+
+    def update():
+        assert 21 in host.callbacks
+        assert surface.unconfigure.call_count == int(retire)
+        assert surface._release.call_count == int(retire)
+        if retire:
+            viewport.window = None
+
+    monkeypatch.setattr(backend.imgui, "update_platform_windows", update)
+    host._update_platform_windows()
+    assert (21 in host.callbacks) is not retire
+    assert (21 in host.surfaces) is not retire
+
+
+def test_shutdown_releases_surface_before_destroying_platform_window(monkeypatch):
+    from deamat import _glfw_viewports as backend
+
+    surface = Mock()
+    host = backend.GlfwViewportHost.__new__(backend.GlfwViewportHost)
+    host.main = 1
+    host.enabled = True
+    host.callbacks = {1: (1, []), 21: object()}
+    host.surfaces = {21: surface}
+    monkeypatch.setattr(backend, "_address", lambda window: window)
+
+    def destroy():
+        surface.unconfigure.assert_called_once()
+        surface._release.assert_called_once()
+        assert 21 in host.callbacks
+
+    monkeypatch.setattr(backend.imgui, "destroy_platform_windows", destroy)
+    monkeypatch.setattr(backend.imgui.backends, "glfw_shutdown", lambda: None)
+    host.close()
+    assert not host.callbacks and not host.surfaces
 
 
 @pytest.mark.skipif(
