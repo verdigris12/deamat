@@ -37,6 +37,22 @@ def test_callbacks_remain_alive_during_platform_destruction(monkeypatch):
     assert host.callbacks == {}
 
 
+def test_main_close_is_deferred_to_gui_while_child_close_only_redraws(monkeypatch):
+    host = host_module.GlfwViewportHost.__new__(host_module.GlfwViewportHost)
+    host.main = "main"
+    calls = []
+    host.gui = SimpleNamespace(
+        close=lambda: calls.append("close"),
+        request_draw=lambda: calls.append("draw"),
+    )
+    monkeypatch.setattr(host_module, "_address", lambda window: window)
+    monkeypatch.setattr(host_module.glfw, "set_window_should_close",
+                        lambda window, value: calls.append((window, value)))
+    host._close_window("main")
+    host._close_window("child")
+    assert calls == [("main", False), "close", "draw"]
+
+
 def test_native_callback_reports_handler_errors(monkeypatch):
     host = host_module.GlfwViewportHost.__new__(host_module.GlfwViewportHost)
     errors = []

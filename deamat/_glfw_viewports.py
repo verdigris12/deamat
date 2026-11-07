@@ -86,7 +86,7 @@ class GlfwViewportHost:
             ("glfwSetWindowSizeCallback", glfw._GLFWwindowsizefun, self._dirty),
             ("glfwSetWindowRefreshCallback", glfw._GLFWwindowrefreshfun, self._dirty),
             ("glfwSetWindowPosCallback", glfw._GLFWwindowposfun, self._dirty),
-            ("glfwSetWindowCloseCallback", glfw._GLFWwindowclosefun, self._dirty),
+            ("glfwSetWindowCloseCallback", glfw._GLFWwindowclosefun, self._close_window),
         ):
             setter = getattr(glfw._glfw, name)
             previous = [None]
@@ -116,6 +116,15 @@ class GlfwViewportHost:
 
     def _dirty(self, *args):
         self.gui.request_draw()
+
+    def _close_window(self, window):
+        if _address(window) == _address(self.main):
+            # rendercanvas otherwise destroys the GLFW window at the end of
+            # polling, before our backend and child windows can be shut down.
+            glfw.set_window_should_close(window, False)
+            self.gui.close()
+        else:
+            self.gui.request_draw()
 
     def _focus(self, window, focused):
         if not focused:
