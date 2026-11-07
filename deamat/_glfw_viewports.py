@@ -79,6 +79,8 @@ class GlfwViewportHost:
                         previous[0](*args)
                     if not self.gui._closed:
                         handler(*args)
+                except Exception as error:
+                    self.gui._record_error(error)
                 finally:
                     self.gui._frame_active = was_active
                     if previous_context != self.renderer.imgui_context:
@@ -203,7 +205,7 @@ class GlfwViewportHost:
         window, callbacks = self.callbacks.pop(_address(self.main))
         for setter, callback, previous in callbacks:
             setter(window, previous)
-        self.callbacks.clear()
         if self.enabled:
             imgui.destroy_platform_windows()
+        self.callbacks.clear()
         imgui.backends.glfw_shutdown()
