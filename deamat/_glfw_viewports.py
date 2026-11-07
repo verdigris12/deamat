@@ -217,6 +217,11 @@ class GlfwViewportHost:
             self.renderer._update_gui_function()
         finally:
             imgui.render()
+        if self._close_frame_pending:
+            # The pane observes its close in this frame; ImGui retires its
+            # platform viewport after the pane is omitted in the next one.
+            self._close_frame_pending = False
+            self.gui.request_draw()
         if self.enabled:
             imgui.update_platform_windows()
         self._draw(imgui.get_draw_data(), context.get_current_texture().create_view())
