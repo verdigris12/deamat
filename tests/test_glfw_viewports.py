@@ -36,6 +36,8 @@ def test_fast_native_click_reaches_viewport_checkbox(viewports, detached):
         def update(_state, _gui, _dt):
             imgui.set_next_window_pos((1050, 150) if detached else (150, 150), imgui.Cond_.always)
             imgui.set_next_window_size((320, 240), imgui.Cond_.always)
+            if viewports and not detached:
+                imgui.set_next_window_viewport(imgui.get_main_viewport().id_)
             imgui.begin("Native input regression")
             viewport = imgui.get_window_viewport()
             state["window"] = _window(viewport)

@@ -131,6 +131,7 @@ class GUI:
     # ------------------------------------------------------------------
     def _create_main_window(self) -> None:
         mv = imgui.get_main_viewport()
+        imgui.set_next_window_viewport(mv.id_)
         imgui.set_next_window_pos((mv.work_pos.x, mv.work_pos.y))
         imgui.set_next_window_size((mv.work_size.x, mv.work_size.y))
         imgui.set_next_window_bg_alpha(0)

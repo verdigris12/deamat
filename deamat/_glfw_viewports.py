@@ -1,6 +1,7 @@
 """GLFW platform windows and WGPU surfaces for one ImGui context."""
 import ctypes
 import os
+import sys
 
 import glfw
 import wgpu
@@ -24,6 +25,41 @@ def _window(viewport):
 
 def _address(window):
     return ctypes.cast(window, ctypes.c_void_p).value
+
+class _X11ViewportPolicy:
+    """Identify secondary windows for X11 window managers, without topmost."""
+
+    def __init__(self):
+        self.display = glfw.get_x11_display()
+        self.x11 = ctypes.CDLL("libX11.so.6")
+        self.x11.XInternAtom.argtypes = (ctypes.c_void_p, ctypes.c_char_p, ctypes.c_int)
+        self.x11.XInternAtom.restype = ctypes.c_ulong
+        self.x11.XChangeProperty.argtypes = (
+            ctypes.c_void_p, ctypes.c_ulong, ctypes.c_ulong, ctypes.c_ulong,
+            ctypes.c_int, ctypes.c_int, ctypes.c_void_p, ctypes.c_int,
+        )
+        self.x11.XFlush.argtypes = (ctypes.c_void_p,)
+        atom = lambda name: self.x11.XInternAtom(self.display, name, False)
+        self.window_type = atom(b"_NET_WM_WINDOW_TYPE")
+        self.utility = atom(b"_NET_WM_WINDOW_TYPE_UTILITY")
+        self.wm_class = atom(b"WM_CLASS")
+        self.atom_type = atom(b"ATOM")
+        self.string_type = atom(b"STRING")
+
+    def install(self, window):
+        xid = glfw.get_x11_window(window)
+        utility = ctypes.c_ulong(self.utility)
+        self.x11.XChangeProperty(
+            self.display, xid, self.window_type, self.atom_type, 32, 0,
+            ctypes.byref(utility), 1,
+        )
+        identity = ctypes.create_string_buffer(b"deamat-viewport\0DeamatViewport\0")
+        self.x11.XChangeProperty(
+            self.display, xid, self.wm_class, self.string_type, 8, 0,
+            identity, len(identity.raw) - 1,
+        )
+        self.x11.XFlush(self.display)
+
 
 
 def _sync_viewport_geometry(viewport, window):
@@ -64,6 +100,7 @@ class GlfwViewportHost:
         self.surfaces = {}
         self.callbacks = {}
         self.focus_pending = False
+        self._close_frame_pending = False
         # The bundled platform backend and Python GLFW must share one library.
         import imgui_bundle
         bundled = os.path.join(os.path.dirname(imgui_bundle.__file__), "libglfw.so.3")
@@ -74,15 +111,24 @@ class GlfwViewportHost:
         wayland = (hasattr(glfw, "get_platform") and
                    glfw.get_platform() == getattr(glfw, "PLATFORM_WAYLAND", -1))
         self.enabled = bool(enabled and not wayland and (imgui.get_io().backend_flags & imgui.BackendFlags_.platform_has_viewports))
+        self._x11_policy = (
+            _X11ViewportPolicy()
+            if self.enabled and sys.platform.startswith("linux")
+            and hasattr(glfw, "get_x11_display") and hasattr(glfw, "get_x11_window")
+            else None
+        )
         if self.enabled:
             imgui.get_io().backend_flags |= imgui.BackendFlags_.renderer_has_viewports
             imgui.get_io().config_flags |= imgui.ConfigFlags_.viewports_enable
+            imgui.get_io().config_viewports_no_auto_merge = True
         self._install(self.main)
 
     def _install(self, window):
         address = _address(window)
         if address in self.callbacks:
             return
+        if self._x11_policy and address != _address(self.main):
+            self._x11_policy.install(window)
         callbacks = []
         # Use GLFW's C setter directly: pyglfw's setter only returns callbacks
         # installed through Python, not the native ImGui backend's callbacks.
@@ -149,6 +195,7 @@ class GlfwViewportHost:
             glfw.set_window_should_close(window, False)
             self.gui.close()
         else:
+            self._close_frame_pending = True
             self.gui.request_draw()
 
     def _focus(self, window, focused):
