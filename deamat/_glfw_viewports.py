@@ -192,8 +192,6 @@ class GlfwViewportHost:
             if not any(glfw.get_window_attrib(window, glfw.FOCUSED) for window, _ in self.callbacks.values()):
                 self.gui._emit_input({"event_type": "focus_out"})
         context = self.renderer._canvas_context
-        ratio = context.pixel_ratio
-        self.renderer.backend.io.display_framebuffer_scale = (ratio, ratio)
         imgui.new_frame()
         # Dear ImGui may trickle a burst of input over several frames. The
         # rendercanvas scheduler clears its draw flag before invoking us, so

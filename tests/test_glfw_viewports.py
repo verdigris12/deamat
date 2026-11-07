@@ -115,13 +115,13 @@ def test_trickled_input_requests_frames_until_queue_is_empty(monkeypatch):
     queue = SimpleNamespace(empty=lambda: not events)
     imgui_context = SimpleNamespace(input_events_queue=queue)
     canvas_context = SimpleNamespace(
-        pixel_ratio=1,
+        pixel_ratio=2,
         get_current_texture=lambda: SimpleNamespace(create_view=lambda: None),
     )
     host = host_module.GlfwViewportHost.__new__(host_module.GlfwViewportHost)
     host.renderer = SimpleNamespace(
         imgui_context=imgui_context, _canvas_context=canvas_context,
-        backend=SimpleNamespace(io=SimpleNamespace()),
+        backend=SimpleNamespace(io=SimpleNamespace(display_framebuffer_scale=(1, 1))),
         _update_gui_function=lambda: seen.append("frame"),
     )
     host.gui = SimpleNamespace(request_draw=lambda: requests.append("draw"))
@@ -139,3 +139,4 @@ def test_trickled_input_requests_frames_until_queue_is_empty(monkeypatch):
     host.render()
     assert seen == ["move", "frame", "down", "frame", "up", "frame"]
     assert requests == ["draw", "draw"]
+    assert host.renderer.backend.io.display_framebuffer_scale == (1, 1)
