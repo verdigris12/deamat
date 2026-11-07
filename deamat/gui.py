@@ -46,7 +46,7 @@ class GUI:
         self, state: Any, *, width: int = 1280, height: int = 720,
         menubar: bool = False, title: str = "deamat",
         max_workers: int | None = None, update_mode: str = "continuous",
-        max_fps: float = 60,
+        max_fps: float = 60, viewports: bool = True,
     ) -> None:
         if threading.current_thread() is not threading.main_thread():
             raise RuntimeError("GUI must be constructed on the main thread")
@@ -86,6 +86,22 @@ class GUI:
 
         self._io = imgui.get_io()
         self._io.config_flags |= imgui.ConfigFlags_.docking_enable
+        self._input_handlers: dict[str, list[Callable]] = {}
+        self._viewport_host = None
+        if getattr(self.canvas, "_window", None) is not None:
+            # Native GLFW supplies ImGui input; remove the rendercanvas bridge to
+            # avoid feeding every main-window event into ImGui twice.
+            for callback, events in (
+                (self.gui_renderer._on_resize, ("resize",)),
+                (self.gui_renderer._on_mouse_move, ("pointer_move",)),
+                (self.gui_renderer._on_mouse, ("pointer_up", "pointer_down")),
+                (self.gui_renderer._on_key, ("key_up", "key_down")),
+                (self.gui_renderer._on_wheel, ("wheel",)),
+                (self.gui_renderer._on_char_input, ("char",)),
+            ):
+                self.canvas.remove_event_handler(callback, *events)
+            from ._glfw_viewports import GlfwViewportHost
+            self._viewport_host = GlfwViewportHost(self, viewports)
 
         # -- Runtime state --
         self.state: Any = state
@@ -184,6 +200,8 @@ class GUI:
 
     def _on_canvas_input(self, event: dict) -> None:
         self.request_draw()
+        if self._viewport_host is None:
+            self._emit_input(event)
 
     def _on_canvas_close(self, event: dict) -> None:
         self.close()
@@ -201,7 +219,10 @@ class GUI:
             return
         self._frame_active = True
         try:
-            self.gui_renderer.render()
+            if self._viewport_host is None:
+                self.gui_renderer.render()
+            else:
+                self._viewport_host.render()
         finally:
             self._frame_active = False
             if self._closed:
@@ -210,6 +231,9 @@ class GUI:
     def _dispose_gui_renderer(self) -> None:
         # ImguiRenderer has no public close method. Release the context via
         # ImGui's API, then drop renderer references after widget cleanup.
+        if self._viewport_host is not None:
+            self._viewport_host.close()
+            self._viewport_host = None
         context = self.gui_renderer.imgui_context
         self.gui_renderer.set_gui(None)
         imgui.destroy_context(context)
@@ -244,6 +268,36 @@ class GUI:
     # ------------------------------------------------------------------
     # Public helpers
     # ------------------------------------------------------------------
+    def add_input_handler(self, callback: Callable, *event_types: str) -> None:
+        """Subscribe to native events from any ImGui viewport."""
+        self._require_open()
+        if not callable(callback):
+            raise TypeError("callback must be callable")
+        for event_type in event_types:
+            handlers = self._input_handlers.setdefault(event_type, [])
+            if callback not in handlers:
+                handlers.append(callback)
+
+    def remove_input_handler(self, callback: Callable, *event_types: str) -> None:
+        """Remove an input subscription; safe after resource disposal."""
+        self._assert_ui_thread()
+        for event_type in event_types:
+            handlers = self._input_handlers.get(event_type, [])
+            if callback in handlers:
+                handlers.remove(callback)
+
+    def _emit_input(self, event: dict) -> None:
+        for callback in tuple(self._input_handlers.get(event["event_type"], ())):
+            if self._closed:
+                break
+            callback(event)
+
+    def get_pixel_ratio(self) -> float:
+        """Return the framebuffer ratio of the current ImGui viewport."""
+        if self._viewport_host is not None:
+            return self._viewport_host.pixel_ratio()
+        return self.canvas.get_pixel_ratio()
+
     def post(self, callback: Callable[..., Any], *args: Any) -> Future:
         """Queue an explicit GUI-thread callback and return its result future.
 

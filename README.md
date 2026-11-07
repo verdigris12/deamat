@@ -105,6 +105,8 @@ Construct and run `GUI` on the main thread. GUI state and all Matplotlib/ImGui/G
 
 `GUI(..., update_mode="continuous", max_fps=60)` controls the rendercanvas scheduler. `update_mode="ondemand"` is useful for non-animated applications: input and posted work request frames; call `gui.request_draw()` when external state needs a frame.
 
+Docked ImGui windows can be dragged into native desktop windows on supported GLFW platforms. `GUI(..., viewports=False)` disables detachment; Wayland remains single-window. All viewports share the same GPU device and texture registry. `gui.get_pixel_ratio()` returns the current ImGui viewport's framebuffer ratio, or the main window's ratio outside a frame. `gui.add_input_handler(callback, *event_types)` and `remove_input_handler` subscribe to `pointer_up`, `key_down`, `key_up`, and application-wide `focus_out` events from any viewport. Pointer coordinates are in ImGui screen space (window-local when viewports are disabled).
+
 See `examples/4-async_update.py` and `examples/7-main-thread-dispatch.py` for executable usage.
 
 ## pygfx scenes

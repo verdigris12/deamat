@@ -114,6 +114,31 @@ def on_worker(callback):
         raise failures[0]
     return results[0]
 
+def test_global_input_handlers_and_fallback_canvas(gui_factory):
+    create, _ = gui_factory
+    gui = create(viewports=False)
+    events = []
+    gui.add_input_handler(events.append, "pointer_up", "key_up")
+    gui.add_input_handler(events.append, "pointer_up")
+    event = {"event_type": "pointer_up", "button": 1, "x": 2, "y": 3}
+    gui._on_canvas_input(event)
+    assert events == [event]
+    gui.remove_input_handler(events.append, "pointer_up", "key_up")
+    gui._on_canvas_input(event)
+    assert events == [event]
+    gui.close()
+    gui.remove_input_handler(events.append, "pointer_up")
+
+
+def test_input_disposal_stops_following_handlers(gui_factory):
+    create, _ = gui_factory
+    gui = create()
+    calls = []
+    gui.add_input_handler(lambda event: gui.close(), "key_up")
+    gui.add_input_handler(calls.append, "key_up")
+    gui._emit_input({"event_type": "key_up", "key": "a"})
+    assert calls == []
+
 
 def test_post_preserves_state_and_runs_on_main_thread(gui_factory):
     create, render_loop = gui_factory
