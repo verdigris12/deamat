@@ -155,6 +155,8 @@ On GLFW/X11, ImGui panels can be dragged outside the main window and docked back
 
 Detached windows stay separate when they overlap the main window; docking requires a deliberate titlebar drag onto a docking target. Closing a detached window closes its panel, not the application. Native window geometry is reconciled before layout, and each surface uses its actual framebuffer-to-window ratio when resized or moved between outputs.
 
+Only already-detached ordinary panes opt out of automatic merging. Main-owned modal dialogs, nested popups and tooltips retain ImGui's normal viewport ownership instead of being forced into separate native windows.
+
 On X11, secondary windows use the `DeamatViewport` class, `deamat-viewport` instance and utility window type; the main window's identity is unchanged. They are not forced always-on-top. For Sway/XWayland, add this narrowly scoped rule to your Sway configuration:
 
 ```sway

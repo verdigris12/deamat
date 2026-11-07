@@ -120,7 +120,6 @@ class GlfwViewportHost:
         if self.enabled:
             imgui.get_io().backend_flags |= imgui.BackendFlags_.renderer_has_viewports
             imgui.get_io().config_flags |= imgui.ConfigFlags_.viewports_enable
-            imgui.get_io().config_viewports_no_auto_merge = True
         self._install(self.main)
 
     def _install(self, window):
@@ -245,6 +244,15 @@ class GlfwViewportHost:
         imgui.set_current_context(self.renderer.imgui_context)
         imgui.backends.glfw_new_frame()
         if self.enabled:
+            # Preserve viewports only after an ordinary window has actually
+            # detached. Global no-auto-merge also detaches modal popups.
+            main_id = imgui.get_main_viewport().id_
+            for imgui_window in imgui.get_current_context().windows:
+                if (imgui_window.viewport_owned and imgui_window.viewport_id != main_id
+                        and not imgui_window.flags & (
+                            imgui.WindowFlags_.child_window | imgui.WindowFlags_.popup
+                            | imgui.WindowFlags_.tooltip)):
+                    imgui_window.window_class.viewport_flags_override_set |= imgui.ViewportFlags_.no_auto_merge
             for viewport in imgui.get_platform_io().viewports:
                 window = _window(viewport)
                 if window and _address(window) != _address(self.main):
