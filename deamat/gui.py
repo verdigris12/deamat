@@ -81,26 +81,20 @@ class GUI:
         # -- pygfx renderer --
         self.renderer = gfx.WgpuRenderer(self.canvas)
 
-        # -- ImGui renderer (uses same wgpu device) --
-        self.gui_renderer = ImguiRenderer(self.renderer.device, self.canvas)
+        # GLFW uses its native input backend, not ImguiRenderer's canvas event
+        # bridge. Other canvas backends retain the existing renderer.
+        native_glfw = getattr(self.canvas, "_window", None) is not None
+        if native_glfw:
+            from ._glfw_viewports import GlfwViewportHost, NativeImguiRenderer
+            self.gui_renderer = NativeImguiRenderer(self.renderer.device, self.canvas)
+        else:
+            self.gui_renderer = ImguiRenderer(self.renderer.device, self.canvas)
 
         self._io = imgui.get_io()
         self._io.config_flags |= imgui.ConfigFlags_.docking_enable
         self._input_handlers: dict[str, list[Callable]] = {}
         self._viewport_host = None
-        if getattr(self.canvas, "_window", None) is not None:
-            # Native GLFW supplies ImGui input; remove the rendercanvas bridge to
-            # avoid feeding every main-window event into ImGui twice.
-            for callback, events in (
-                (self.gui_renderer._on_resize, ("resize",)),
-                (self.gui_renderer._on_mouse_move, ("pointer_move",)),
-                (self.gui_renderer._on_mouse, ("pointer_up", "pointer_down")),
-                (self.gui_renderer._on_key, ("key_up", "key_down")),
-                (self.gui_renderer._on_wheel, ("wheel",)),
-                (self.gui_renderer._on_char_input, ("char",)),
-            ):
-                self.canvas.remove_event_handler(callback, *events)
-            from ._glfw_viewports import GlfwViewportHost
+        if native_glfw:
             self._viewport_host = GlfwViewportHost(self, viewports)
 
         # -- Runtime state --

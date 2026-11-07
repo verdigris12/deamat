@@ -3,6 +3,25 @@ from types import SimpleNamespace
 from deamat import _glfw_viewports as host_module
 
 
+def test_native_renderer_does_not_install_canvas_input_handlers(monkeypatch):
+    context = SimpleNamespace(_config={"format": "rgba8unorm"})
+    canvas = SimpleNamespace(get_wgpu_context=lambda: context)
+    device = object()
+    imgui_context = object()
+    backend = object()
+    monkeypatch.setattr(host_module.imgui, "create_context", lambda: imgui_context)
+    monkeypatch.setattr(host_module.imgui, "set_current_context", lambda value: None)
+    monkeypatch.setattr(host_module, "ImguiWgpuBackend", lambda gpu, fmt: (
+        backend if (gpu, fmt) == (device, "rgba8unorm") else None
+    ))
+    renderer = host_module.NativeImguiRenderer(device, canvas)
+    assert renderer.imgui_context is imgui_context
+    assert renderer.backend is backend
+    callback = lambda: None
+    renderer.set_gui(callback)
+    assert renderer._update_gui_function is callback
+
+
 def test_callbacks_remain_alive_during_platform_destruction(monkeypatch):
     host = host_module.GlfwViewportHost.__new__(host_module.GlfwViewportHost)
     host.main = "main"

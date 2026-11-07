@@ -7,6 +7,7 @@ import wgpu
 from imgui_bundle import imgui
 from rendercanvas.glfw import KEY_MAP
 from wgpu.utils.glfw_present_info import get_glfw_present_info
+from wgpu.utils.imgui.imgui_backend import ImguiWgpuBackend
 
 
 _capsule_pointer = ctypes.pythonapi.PyCapsule_GetPointer
@@ -23,6 +24,26 @@ def _window(viewport):
 
 def _address(window):
     return ctypes.cast(window, ctypes.c_void_p).value
+
+
+class NativeImguiRenderer:
+    """One ImGui context and shared WGPU backend, without canvas input hooks."""
+
+    def __init__(self, device, canvas):
+        self._canvas_context = canvas.get_wgpu_context()
+        config = self._canvas_context._config
+        if config is None:
+            target_format = self._canvas_context.get_preferred_format(device.adapter)
+            self._canvas_context.configure(device=device, format=target_format)
+        else:
+            target_format = config["format"]
+        self.imgui_context = imgui.create_context()
+        imgui.set_current_context(self.imgui_context)
+        self.backend = ImguiWgpuBackend(device, target_format)
+        self._update_gui_function = None
+
+    def set_gui(self, callback):
+        self._update_gui_function = callback
 
 
 class GlfwViewportHost:
