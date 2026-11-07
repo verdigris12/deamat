@@ -33,6 +33,8 @@ def recording_gui():
         renderer=SimpleNamespace(device=device),
         gui_renderer=SimpleNamespace(backend=backend),
         request_draw=Mock(), add_cleanup=cleanups.append,
+        add_input_handler=Mock(), remove_input_handler=Mock(),
+        get_pixel_ratio=Mock(return_value=1),
         cleanups=cleanups, textures=textures,
     )
 
@@ -121,10 +123,55 @@ class TestFigureCanvas(unittest.TestCase):
             is_mouse_down=Mock(return_value=False),
         ):
             _handle_input(self.view, SimpleNamespace(x=0, y=0), (400, 300))
+        self.view._native_event({"event_type": "pointer_up", "button": 1,
+                                 "x": 650, "y": 150, "modifiers": ()})
         self.assertFalse(self.view._pressed)
         self.assertNotEqual(self.axes.get_xlim(), initial)
         self.view.back()
         np.testing.assert_allclose(self.axes.get_xlim(), initial)
+
+    def test_detached_native_release_uses_screen_coordinates_and_button_mapping(self):
+        events = []
+        self.view.canvas.mpl_connect("button_release_event", events.append)
+        self.view._origin = (800, 400)
+        self.view._display_size = (200, 150)
+        self.view.mouse_event("button_press_event", 100, 100, button=MouseButton.RIGHT)
+        self.view._native_event({"event_type": "pointer_up", "button": 2,
+                                 "x": 950, "y": 450, "modifiers": ()})
+        self.assertEqual(events[-1].button, MouseButton.RIGHT)
+        self.assertEqual((events[-1].x, events[-1].y), (300, 200))
+        self.assertFalse(self.view._pressed)
+
+    def test_focus_loss_releases_hidden_capture_without_upload(self):
+        events = []
+        self.view.canvas.mpl_connect("key_release_event", events.append)
+        self.view._keys["left"] = "ctrl+left"
+        self.view.mouse_event("button_press_event", *self.center(), button=MouseButton.LEFT)
+        self.view._native_event({"event_type": "focus_out"})
+        self.assertFalse(self.view._pressed)
+        self.assertEqual([event.key for event in events], ["ctrl+left"])
+        self.assertFalse(self.view._keys)
+
+    def test_detached_move_reuses_agg_upload_and_ratio_changes_density(self):
+        from deamat.mpl_canvas import draw_figure
+
+        origin = SimpleNamespace(x=800, y=400)
+        queue = self.gui.renderer.device.queue
+        with patch("deamat.mpl_canvas._handle_input"), patch.multiple(
+            "deamat.mpl_canvas.imgui",
+            push_id=Mock(), pop_id=Mock(), image=Mock(), set_cursor_screen_pos=Mock(),
+            invisible_button=Mock(), get_cursor_screen_pos=Mock(return_value=origin),
+        ):
+            draw_figure(self.gui, "plot", self.figure, size=(400, 300), toolbar=False)
+            self.assertEqual(queue.write_texture.call_count, 1)
+            origin.x, origin.y = 1200, 600
+            draw_figure(self.gui, "plot", self.figure, size=(400, 300), toolbar=False)
+            self.assertEqual(queue.write_texture.call_count, 1)
+            self.gui.get_pixel_ratio.return_value = 2
+            draw_figure(self.gui, "plot", self.figure, size=(400, 300), toolbar=False)
+            self.assertEqual(queue.write_texture.call_count, 2)
+            self.assertEqual(self.view._texture_size, (800, 600))
+            self.assertIs(self.view.figure, self.figure)
 
     def test_rectangle_zoom_preserves_data(self):
         xdata = self.line.get_xdata().copy()

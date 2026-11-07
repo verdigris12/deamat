@@ -36,6 +36,9 @@ def host():
         canvas=RenderCanvas(size=(640, 480), pixel_ratio=2),
         gui_renderer=SimpleNamespace(backend=backend),
         _pygfx_scenes={}, scenes={}, add_cleanup=cleanups.append,
+        get_pixel_ratio=lambda: gui.canvas.get_pixel_ratio(),
+        add_input_handler=lambda callback, *types: None,
+        remove_input_handler=lambda callback, *types: None,
         request_draw=lambda: requests.append(True),
     )
     yield gui, backend, requests
@@ -106,6 +109,42 @@ def test_single_initial_and_resize_render_preserves_camera_and_renderer(host, ui
     assert len(renders) == 2  # static idle frame does not render
 
 
+def test_detached_move_keeps_texture_and_ratio_change_preserves_scene(host, ui, monkeypatch):
+    gui, backend, _ = host
+    ratio = [1]
+    origin = [10, 20]
+    monkeypatch.setattr(gui, "get_pixel_ratio", lambda: ratio[0])
+    monkeypatch.setattr(canvas_module.imgui, "get_cursor_screen_pos",
+                        lambda: canvas_module.imgui.ImVec2(*origin))
+    view = canvas_module.pygfx_canvas(gui, None, "view", continuous=False)
+    renderer, scene, camera, texture = view.renderer, view.scene, view.camera, view._texture
+    origin[:] = [800, 400]
+    canvas_module.pygfx_canvas(gui, None, "view", continuous=False)
+    assert view._texture is texture
+    assert not backend.removed
+    ratio[0] = 2
+    canvas_module.pygfx_canvas(gui, None, "view", continuous=False)
+    assert view._texture.size == (240, 200, 1)
+    assert (view.renderer, view.scene, view.camera) == (renderer, scene, camera)
+    assert len(backend.removed) == 1
+
+
+def test_focus_loss_releases_captured_input(host, ui):
+    view = make_view(host)
+    view.controller = gfx.PanZoomController(damping=0)
+    view._image_pos = (800, 400)
+    left = canvas_module.imgui.MouseButton_.left
+    ui.x, ui.y, ui.hovered, ui.down, ui.clicked = 850, 450, True, {left}, {left}
+    canvas_module._handle_imgui_events(view)
+    view._native_event({"event_type": "focus_out"})
+    assert not view._buttons
+    view.controller.tick()
+    position = view.camera.local.position.copy()
+    view._native_event({"event_type": "pointer_up", "button": 1, "x": 1200, "y": 450})
+    view.controller.tick()
+    np.testing.assert_allclose(view.camera.local.position, position)
+
+
 def test_controller_filters_and_detach_ownership(host):
     camera = gfx.PerspectiveCamera(63, 1.2)
     controller = gfx.OrbitController()
@@ -162,7 +201,8 @@ def test_drag_releases_outside_and_applies_final_position(host, ui):
     intermediate = view.camera.local.position.copy()
     ui.x = 300
     ui.down.clear()
-    canvas_module._handle_imgui_events(view)
+    view._native_event({"event_type": "pointer_up", "button": 1,
+                        "x": ui.x, "y": ui.y, "modifiers": ()})
     view.controller.tick()
     final = view.camera.local.position.copy()
     assert not np.allclose(intermediate, final)

@@ -51,7 +51,7 @@ class PygfxCanvas:
         self._configure_target()
         self._viewport = gfx.Viewport(self.renderer)
         self.renderer.add_event_handler(self._controller_event, *_INPUT_EVENTS)
-        gui.canvas.add_event_handler(self._native_event, "key_down", "key_up", "pointer_up")
+        gui.add_input_handler(self._native_event, "key_down", "key_up", "pointer_up", "focus_out")
         weak_view = ref(self)
 
         def cleanup():
@@ -124,7 +124,11 @@ class PygfxCanvas:
         # Native releases also reach a canvas whose ImGui window was collapsed
         # during a drag. Keyboard events preserve renderer key names/modifiers.
         kind = event["event_type"]
-        if kind == "pointer_up":
+        if self._closed:
+            return
+        if kind == "focus_out":
+            self._release_input()
+        elif kind == "pointer_up":
             button = event["button"]
             if button in self._buttons:
                 x = event["x"] - self._image_pos[0]
@@ -180,7 +184,7 @@ class PygfxCanvas:
         self._release_input()
         self._closed = True
         self.renderer.remove_event_handler(self._controller_event, *_INPUT_EVENTS)
-        self._gui.canvas.remove_event_handler(self._native_event, "key_down", "key_up", "pointer_up")
+        self._gui.remove_input_handler(self._native_event, "key_down", "key_up", "pointer_up", "focus_out")
         if getattr(self._gui, "_pygfx_keyboard_view", None) is self:
             self._gui._pygfx_keyboard_view = None
         if self._tex_ref is not None:
@@ -217,8 +221,6 @@ def _handle_imgui_events(view):
             view._gui._pygfx_keyboard_view = view
             view._buttons.add(n)
             view._dispatch("pointer_down", button=n, **args)
-        if n in view._buttons and not imgui.is_mouse_down(button):
-            view._pointer_release(n, x, y, buttons, modifiers)
     if (hovered or view._hovered or view._buttons) and (view._mouse_pos != (x, y) or hovered != view._hovered):
         # Send one out-of-bounds move on leaving, so pygfx emits pointer_leave.
         move_args = args if hovered or view._buttons else {**args, "x": -1, "y": -1}
@@ -250,7 +252,7 @@ def pygfx_canvas(
     """
     avail = imgui.get_content_region_avail()
     size = (max(1, int(avail.x)), max(1, int(avail.y)))
-    pixel_ratio = gui.canvas.get_pixel_ratio()
+    pixel_ratio = gui.get_pixel_ratio()
     view = gui._pygfx_scenes.get(canvas_id)
     if view is None:
         view = PygfxCanvas(gui, canvas_id, size, pixel_ratio, camera)

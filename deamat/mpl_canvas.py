@@ -67,12 +67,16 @@ class FigureView:
         self._pressed = set()
         self._last_mouse = None
         self._hovered = False
+        self._keys = {}
+        self._origin = (0, 0)
+        self._display_size = (1, 1)
         self._previous_canvas = figure.canvas
         self._previous_stale_callback = figure.stale_callback
         self.canvas = _Canvas(figure, self)
         self.toolbar = _Toolbar(self.canvas)
         self._stale_callback = self._on_stale
         figure.stale_callback = self._stale_callback
+        gui.add_input_handler(self._native_event, "pointer_up", "key_up", "focus_out")
         self.set_mode("pan")
 
     def _on_stale(self, artist, stale):
@@ -110,6 +114,40 @@ class FigureView:
 
     def forward(self):
         self.toolbar.forward()
+
+    def _native_event(self, event):
+        if self.closed:
+            return
+        kind = event["event_type"]
+        if kind == "focus_out":
+            self._release_input()
+        elif kind == "pointer_up":
+            button = {1: MouseButton.LEFT, 2: MouseButton.RIGHT, 3: MouseButton.MIDDLE}.get(event["button"])
+            if button not in self._pressed:
+                return
+            width, height = self.figure.bbox.size
+            x = (event["x"] - self._origin[0]) * width / self._display_size[0]
+            y = (1 - (event["y"] - self._origin[1]) / self._display_size[1]) * height
+            modifiers = {"Control": "ctrl", "Alt": "alt", "Shift": "shift", "Meta": "super"}
+            key = "+".join(modifiers[m] for m in event.get("modifiers", ()) if m in modifiers) or None
+            self.mouse_event("button_release_event", x, y, button=button, key=key)
+            self._last_mouse = (x, y)
+        elif kind == "key_up":
+            name = event["key"].lower().replace("arrow", "")
+            if name == "space":
+                name = " "
+            key = self._keys.pop(name, None)
+            if key is not None:
+                x, y = self._last_mouse or (0, 0)
+                self.canvas.callbacks.process("key_release_event", KeyEvent("key_release_event", self.canvas, key, x, y))
+
+    def _release_input(self):
+        x, y = self._last_mouse or (0, 0)
+        for button in tuple(self._pressed):
+            self.mouse_event("button_release_event", x, y, button=button)
+        for key in self._keys.values():
+            self.canvas.callbacks.process("key_release_event", KeyEvent("key_release_event", self.canvas, key, x, y))
+        self._keys.clear()
 
     def mouse_event(self, name, x, y, *, button=None, step=0, key=None, dblclick=False):
         """Forward an event, retaining capture until release even outside axes."""
@@ -214,9 +252,8 @@ class FigureView:
         """Detach input and release GPU resources; the caller owns the Figure."""
         if self.closed:
             return
-        for button in tuple(self._pressed):
-            x, y = self._last_mouse or (0, 0)
-            self.mouse_event("button_release_event", x, y, button=button)
+        self._release_input()
+        self.gui.remove_input_handler(self._native_event, "pointer_up", "key_up", "focus_out")
         self.set_mode("none")
         self.closed = True
         for connection in tuple(self.canvas.connections):
@@ -293,6 +330,8 @@ def _modifier_key(io):
 
 def _handle_input(view, origin, display_size):
     io = imgui.get_io()
+    view._origin = (origin.x, origin.y)
+    view._display_size = display_size
     hovered = imgui.is_item_hovered()
     if hovered != view._hovered:
         name = "figure_enter_event" if hovered else "figure_leave_event"
@@ -311,8 +350,6 @@ def _handle_input(view, origin, display_size):
             if hovered and imgui.is_mouse_clicked(index):
                 view.mouse_event("button_press_event", x, y, button=button, key=key,
                                  dblclick=imgui.is_mouse_double_clicked(index))
-            if button in view._pressed and not imgui.is_mouse_down(index):
-                view.mouse_event("button_release_event", x, y, button=button, key=key)
         if hovered and io.mouse_wheel:
             view.mouse_event("scroll_event", x, y, step=io.mouse_wheel, key=key)
         if view._pressed:
@@ -330,10 +367,9 @@ def _handle_input(view, origin, display_size):
                                                    "shift" if io.key_shift else "", "super" if io.key_super else "") if part)
             if modifiers:
                 mpl_key = modifiers + "+" + mpl_key
-            for event_name, active in (("key_press_event", imgui.is_key_pressed(code, False)),
-                                       ("key_release_event", imgui.is_key_released(code))):
-                if active:
-                    view.canvas.callbacks.process(event_name, KeyEvent(event_name, view.canvas, mpl_key, x, y))
+            if imgui.is_key_pressed(code, False):
+                view._keys[mpl_key.split("+")[-1]] = mpl_key
+                view.canvas.callbacks.process("key_press_event", KeyEvent("key_press_event", view.canvas, mpl_key, x, y))
 
 
 def draw_figure(gui, fig_id, figure, *, size=None, fit=False, toolbar=True):
@@ -348,8 +384,7 @@ def draw_figure(gui, fig_id, figure, *, size=None, fit=False, toolbar=True):
             size = (available.x, available.y)
         elif toolbar:
             size = (size[0], max(1, size[1] - (imgui.get_cursor_screen_pos().y - start_y)))
-        scale = imgui.get_io().display_framebuffer_scale
-        texture, display_size = view.render(size=size, fit=fit, pixel_ratio=max(scale.x, scale.y))
+        texture, display_size = view.render(size=size, fit=fit, pixel_ratio=gui.get_pixel_ratio())
         origin = imgui.get_cursor_screen_pos()
         imgui.image(texture, imgui.ImVec2(*display_size))
         imgui.set_cursor_screen_pos(origin)
