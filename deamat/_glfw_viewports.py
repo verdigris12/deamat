@@ -150,6 +150,11 @@ class GlfwViewportHost:
         ratio = context.pixel_ratio
         self.renderer.backend.io.display_framebuffer_scale = (ratio, ratio)
         imgui.new_frame()
+        # Dear ImGui may trickle a burst of input over several frames. The
+        # rendercanvas scheduler clears its draw flag before invoking us, so
+        # request another frame only while unprocessed events remain.
+        if not imgui.get_current_context().input_events_queue.empty():
+            self.gui.request_draw()
         try:
             self.renderer._update_gui_function()
         finally:
