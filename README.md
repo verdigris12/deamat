@@ -153,6 +153,18 @@ See `examples/4-async_update.py` and `examples/7-main-thread-dispatch.py` for ex
 
 On GLFW/X11, ImGui panels can be dragged outside the main window and docked back inside it. This is enabled by default; `GUI(..., viewports=False)` keeps panels inside the main window. The GLFW platform backend does not support detached viewports on native Wayland, so deamat leaves them disabled there. Other rendercanvas backends retain single-window rendering.
 
+Detached windows stay separate when they overlap the main window; docking requires a deliberate titlebar drag onto a docking target. Closing a detached window closes its panel, not the application. Native window geometry is reconciled before layout, and each surface uses its actual framebuffer-to-window ratio when resized or moved between outputs.
+
+On X11, secondary windows use the `DeamatViewport` class, `deamat-viewport` instance and utility window type; the main window's identity is unchanged. They are not forced always-on-top. For Sway/XWayland, add this narrowly scoped rule to your Sway configuration:
+
+```sway
+for_window [class="^DeamatViewport$" instance="^deamat-viewport$"] floating enable
+```
+
+The stock binding exposes secondary windows only after they are mapped, too late for Sway's initial utility-window floating decision. The class rule supplies that policy when the identity arrives. Deamat does not modify compositor configuration. These viewport features work with the public imgui-bundle 1.92.0 wheel; the embedded FileDialog patch is unrelated.
+
+Sway 1.12 has a separate movement limitation: its [mapped floating XWayland configure handler](https://github.com/swaywm/sway/blob/1.12/sway/desktop/xwayland.c#L584-L607) ignores the position requested by GLFW and recenters the window. The rule above does not fix ImGui titlebar dragging or reliable drag-to-dock on Sway. Compositor-driven movement and resizing are separate from these client-driven gestures. Deamat does not bypass the window manager or send Sway IPC commands to work around this policy.
+
 All windows share one ImGui context, WGPU device and texture registry. Detached pygfx widgets sample the same GPU textures without CPU image readback. Matplotlib still rasterizes through Agg on the CPU and uploads only when dirty; moving a panel does not rebuild its figure or rerasterize an unchanged image. Each native window has its own presentation surface, not a separate rendering process.
 
 `gui.get_pixel_ratio()` returns the current ImGui viewport's framebuffer ratio, or the main window's ratio outside a frame. It is not the monitor's content scale. The retained widgets use it when their backing image dimensions change.
@@ -178,6 +190,8 @@ uv build
 ```
 
 Tests that construct a GUI require a display and working wgpu driver. On a headless Linux machine, provide Xvfb and a software Vulkan implementation, then use `xvfb-run -a uv run --no-sync pytest -q`. Native driver availability remains host-specific; choose a working Vulkan ICD explicitly if automatic driver discovery fails.
+
+`DEAMAT_SWAY_ACCEPTANCE=1 uv run --no-sync pytest -s tests/test_sway_viewports.py` starts a private two-output headless Sway session; it requires `sway`, `swaymsg`, `grim` and a working Vulkan driver. It checks geometry, floating identity, overlap without merging and native close lifecycle, and writes screenshots to pytest's temporary directory. It does not touch the user's display or configuration and does not claim to pass the Sway titlebar-drag/docking limitation above. This viewport test does not need the patched FileDialog binding.
 
 The interactive, self-contained viewer design draft is `.ui-drafts/figure-viewer/v1.html`. It uses a labelled SVG sample, not the Python renderer; native screenshots beside it document the implemented surface. It can be opened directly in a browser, or served with the accompanying localhost-only review server for persisted feedback.
 
