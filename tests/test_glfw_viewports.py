@@ -15,19 +15,19 @@ pytestmark = pytest.mark.skipif(
 )
 
 
-def _callback(window, setter, callback_type):
+def _callback(window, setter):
     """Borrow the installed native callback without replacing its chain."""
-    previous = setter(window, callback_type())
+    previous = setter(window, setter.argtypes[1]())
     setter(window, previous)
     assert previous
     return previous
 
 
-@pytest.mark.parametrize("detached", [False, True])
-def test_fast_native_click_reaches_viewport_checkbox(detached):
-    gui = GUI(GUIState(), width=640, height=480, update_mode="ondemand")
+@pytest.mark.parametrize("viewports,detached", [(True, False), (True, True), (False, False)])
+def test_fast_native_click_reaches_viewport_checkbox(viewports, detached):
+    gui = GUI(GUIState(), width=640, height=480, update_mode="ondemand", viewports=viewports)
     try:
-        if not gui._viewport_host.enabled:
+        if viewports and not gui._viewport_host.enabled:
             pytest.skip("native detached viewports unavailable")
         glfw.set_window_pos(gui.canvas._window, 50, 50)
         imgui.get_io().set_ini_filename("")
@@ -61,15 +61,15 @@ def test_fast_native_click_reaches_viewport_checkbox(detached):
         assert (state["viewport"] != imgui.get_main_viewport().id_) == detached
         window = state["window"]
         x, y = state["point"]
-        wx, wy = glfw.get_window_pos(window)
+        wx, wy = glfw.get_window_pos(window) if viewports else (0, 0)
         glfw.focus_window(window)
         glfw.set_cursor_pos(window, x - wx, y - wy)
         # Poll the native hover/motion, but do not start an ImGui frame before
         # the button burst: this exercises the initially stale hovered viewport.
         glfw.poll_events()
         assert glfw.get_window_attrib(window, glfw.HOVERED)
-        motion = _callback(window, glfw._glfw.glfwSetCursorPosCallback, glfw._GLFWcursorposfun)
-        button = _callback(window, glfw._glfw.glfwSetMouseButtonCallback, glfw._GLFWmousebuttonfun)
+        motion = _callback(window, glfw._glfw.glfwSetCursorPosCallback)
+        button = _callback(window, glfw._glfw.glfwSetMouseButtonCallback)
         motion(window, x - wx, y - wy)
         button(window, glfw.MOUSE_BUTTON_LEFT, glfw.PRESS, 0)
         button(window, glfw.MOUSE_BUTTON_LEFT, glfw.RELEASE, 0)
@@ -86,7 +86,7 @@ def test_native_main_close_shuts_down_before_window_destruction():
     gui = GUI(GUIState(), width=640, height=480)
     try:
         window = gui.canvas._window
-        close = _callback(window, glfw._glfw.glfwSetWindowCloseCallback, glfw._GLFWwindowclosefun)
+        close = _callback(window, glfw._glfw.glfwSetWindowCloseCallback)
         glfw.set_window_should_close(window, True)
         close(window)
         assert gui._closed
