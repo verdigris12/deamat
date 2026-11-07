@@ -153,9 +153,11 @@ See `examples/4-async_update.py` and `examples/7-main-thread-dispatch.py` for ex
 
 On GLFW/X11, ImGui panels can be dragged outside the main window and docked back inside it. This is enabled by default; `GUI(..., viewports=False)` keeps panels inside the main window. The GLFW platform backend does not support detached viewports on native Wayland, so deamat leaves them disabled there. Other rendercanvas backends retain single-window rendering.
 
-Detached windows stay separate when they overlap the main window; docking requires a deliberate titlebar drag onto a docking target. Closing a detached window closes its panel, not the application. Native window geometry is reconciled before layout, and each surface uses its actual framebuffer-to-window ratio when resized or moved between outputs.
+Detached windows stay separate when they overlap the main window; docking requires a deliberate titlebar drag onto a docking target. Ordinary detached windows request standard native decorations, allowing compositor-owned titlebar movement where supported; ImGui popups and tooltips remain undecorated. Closing a detached window closes its panel, not the application. Native window geometry is reconciled before layout, and each surface uses its actual framebuffer-to-window ratio when resized or moved between outputs.
 
 Only already-detached ordinary panes opt out of automatic merging. Main-owned modal dialogs, nested popups and tooltips retain ImGui's normal viewport ownership instead of being forced into separate native windows.
+
+Native input callbacks and presentation surfaces remain alive until ImGui has actually destroyed their platform window, including transitions where a still-live viewport is temporarily absent from the rendering list. The main surface synchronizes against the native framebuffer before layout; if a resize races layout, rendering resumes on the next frame with matching dimensions.
 
 On X11, secondary windows use the `DeamatViewport` class, `deamat-viewport` instance and utility window type; the main window's identity is unchanged. They are not forced always-on-top. For Sway/XWayland, add this narrowly scoped rule to your Sway configuration:
 

@@ -50,6 +50,8 @@ def test_secondary_identity_overlap_and_native_close():
         window = state["window"]
         viewport_id = state["viewport"]
         assert window and viewport_id != imgui.get_main_viewport().id_
+        assert glfw.get_window_attrib(window, glfw.DECORATED)
+        assert not imgui.get_io().config_viewports_no_decoration
         # The dock host must stay in the main native window; the pane is the
         # only secondary platform viewport.
         assert {viewport.id_ for viewport in imgui.get_platform_io().viewports} == {

@@ -181,9 +181,13 @@ exec sh -c 'printf \"DISPLAY=%s\\nWAYLAND_DISPLAY=%s\\nSWAYSOCK=%s\\n\" \"$DISPL
         old_pane_pos = d["native_pos"]
         cmd(p["id"], f"move absolute position {mr['x'] + 100} {mr['y'] + 100}")
         d = settled("overlap", d["frame"], ("native_pos", old_pane_pos))
-        assert all(abs(a-b) <= 2 for a, b in zip(d["native_pos"], [mr["x"] + 100, mr["y"] + 100])), d
-        assert pane(), d
-        pr = pane()["rect"]
+        p = pane()
+        assert p is not None
+        pr = p["rect"]
+        client = p["window_rect"]
+        assert all(abs(a-b) <= 2 for a, b in zip(
+            d["native_pos"], [pr["x"] + client["x"], pr["y"] + client["y"]]
+        )), d
         assert max(pr["x"], mr["x"]) < min(pr["x"] + pr["width"], mr["x"] + mr["width"])
         assert max(pr["y"], mr["y"]) < min(pr["y"] + pr["height"], mr["y"] + mr["height"])
         cmd(p["id"], "kill")

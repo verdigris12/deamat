@@ -1,11 +1,13 @@
 """Native regressions: run on Linux with a display (CI can use Xvfb)."""
 import os
 import sys
+from types import SimpleNamespace
 
 import pytest
 
 from deamat import GUI, GUIState, imgui
 from deamat._glfw_viewports import _window
+from deamat._glfw_viewports import _address
 import glfw
 
 
@@ -96,6 +98,60 @@ def test_native_main_close_shuts_down_before_window_destruction():
         assert not gui._shutdown_complete
         gui._shutdown()
         assert gui._shutdown_complete
+        assert not gui.errors
+    finally:
+        gui.close()
+
+
+def test_callback_survives_render_list_omission_until_native_destruction(monkeypatch):
+    gui = GUI(GUIState(), width=640, height=480, update_mode="ondemand", viewports=True)
+    try:
+        host = gui._viewport_host
+        if not host.enabled:
+            pytest.skip("native detached viewports unavailable")
+        imgui.get_io().set_ini_filename("")
+        state = {"show": True, "viewport": None}
+
+        def update(_state, _gui, _dt):
+            if state["show"]:
+                imgui.set_next_window_pos((1050, 150), imgui.Cond_.once)
+                imgui.set_next_window_size((320, 240), imgui.Cond_.once)
+                imgui.begin("Callback lifetime")
+                state["viewport"] = imgui.get_window_viewport().id_
+                imgui.end()
+
+        gui.update = update
+        gui.gui_renderer.set_gui(gui._draw_imgui)
+        gui.canvas.request_draw(gui._render_frame)
+
+        def frame():
+            glfw.poll_events()
+            gui.canvas.force_draw()
+
+        for _ in range(6):
+            frame()
+        viewport_id = state["viewport"]
+        viewport = imgui.find_viewport_by_id(viewport_id)
+        window = _window(viewport)
+        assert window and viewport_id != imgui.get_main_viewport().id_
+        address = _address(window)
+        assert address in host.callbacks and address in host.surfaces
+
+        # Model the ImGui frame where the native viewport still exists but is
+        # omitted from the renderer-facing PlatformIO viewport list.
+        platform_io = imgui.get_platform_io
+        with monkeypatch.context() as patch:
+            patch.setattr(imgui, "get_platform_io", lambda: SimpleNamespace(
+                viewports=[v for v in platform_io().viewports if v.id_ != viewport_id]))
+            frame()
+            assert address in host.callbacks and address in host.surfaces
+            callback = _callback(window, glfw._glfw.glfwSetCursorPosCallback)
+            callback(window, 10, 10)
+
+        state["show"] = False
+        for _ in range(5):
+            frame()
+        assert address not in host.callbacks and address not in host.surfaces
         assert not gui.errors
     finally:
         gui.close()
