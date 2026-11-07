@@ -213,6 +213,30 @@ def test_drag_releases_outside_and_applies_final_position(host, ui):
     np.testing.assert_allclose(view.camera.local.position, final)
 
 
+@pytest.mark.parametrize("release_before_press", [True, False])
+def test_queued_click_releases_once(host, ui, release_before_press):
+    view = make_view(host, gfx.OrthographicCamera(4, 4))
+    mesh = gfx.Mesh(gfx.plane_geometry(4, 4), gfx.MeshBasicMaterial(pick_write=True))
+    view.scene.add(mesh)
+    view.renderer.render(view.scene, view.camera)
+    events = []
+    mesh.add_event_handler(lambda event: events.append(event.type), "pointer_down", "pointer_up")
+    view._image_pos = (10, 20)
+    left = canvas_module.imgui.MouseButton_.left
+    release = {"event_type": "pointer_up", "button": 1, "x": ui.x, "y": ui.y}
+    if release_before_press:
+        view._native_event(release)
+    ui.hovered, ui.down, ui.clicked = True, {left}, {left}
+    canvas_module._handle_imgui_events(view)
+    if not release_before_press:
+        view._native_event(release)
+    ui.down.clear()
+    ui.clicked.clear()
+    canvas_module._handle_imgui_events(view)
+    assert events == ["pointer_down", "pointer_up"]
+    assert not view._buttons
+
+
 def test_renderer_picks_scene_click_hover_and_pointer_capture(host):
     view = make_view(host, gfx.OrthographicCamera(4, 4))
     mesh = gfx.Mesh(gfx.plane_geometry(2, 2), gfx.MeshBasicMaterial(color="red", pick_write=True))

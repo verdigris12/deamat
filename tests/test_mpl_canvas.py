@@ -120,6 +120,7 @@ class TestFigureCanvas(unittest.TestCase):
             is_item_hovered=Mock(return_value=False),
             get_mouse_pos=Mock(return_value=SimpleNamespace(x=500, y=150)),
             is_key_down=Mock(return_value=False),
+            is_mouse_down=Mock(return_value=True),
             set_next_frame_want_capture_mouse=Mock(),
         ):
             _handle_input(self.view, SimpleNamespace(x=0, y=0), (400, 300))
@@ -131,6 +132,52 @@ class TestFigureCanvas(unittest.TestCase):
         self.assertNotEqual(self.axes.get_xlim(), intermediate)
         self.view.back()
         np.testing.assert_allclose(self.axes.get_xlim(), initial)
+    def test_queued_input_releases_once_in_either_order(self):
+        from deamat.mpl_canvas import imgui
+
+        for release_before_press in (True, False):
+            with self.subTest(release_before_press=release_before_press):
+                events = []
+                connections = [
+                    self.view.canvas.mpl_connect(name, lambda event: events.append(event.name))
+                    for name in ("button_press_event", "button_release_event",
+                                 "key_press_event", "key_release_event")
+                ]
+                state = SimpleNamespace(pressed=True)
+                io = SimpleNamespace(key_ctrl=False, key_alt=False, key_shift=False,
+                                     key_super=False, mouse_wheel=0)
+                button_up = {"event_type": "pointer_up", "button": 1, "x": 200, "y": 150}
+                key_up = {"event_type": "key_up", "key": "a"}
+                if release_before_press:
+                    self.view._native_event(button_up)
+                    self.view._native_event(key_up)
+                with patch.multiple(
+                    "deamat.mpl_canvas.imgui",
+                    get_io=Mock(return_value=io), is_item_hovered=Mock(return_value=True),
+                    get_mouse_pos=Mock(return_value=SimpleNamespace(x=200, y=150)),
+                    is_key_down=Mock(return_value=False),
+                    is_mouse_clicked=Mock(side_effect=lambda index: state.pressed and index == 0),
+                    is_mouse_double_clicked=Mock(return_value=False),
+                    is_mouse_down=Mock(side_effect=lambda index: state.pressed and index == 0),
+                    is_key_pressed=Mock(side_effect=lambda code, repeat: state.pressed and code == imgui.Key.a),
+                    is_key_released=Mock(side_effect=lambda code: not state.pressed and code == imgui.Key.a),
+                    set_item_key_owner=Mock(), set_next_frame_want_capture_mouse=Mock(),
+                ):
+                    _handle_input(self.view, SimpleNamespace(x=0, y=0), (400, 300))
+                    if not release_before_press:
+                        self.view._native_event(button_up)
+                        self.view._native_event(key_up)
+                    state.pressed = False
+                    _handle_input(self.view, SimpleNamespace(x=0, y=0), (400, 300))
+                self.assertEqual(events.count("button_press_event"), 1)
+                self.assertEqual(events.count("button_release_event"), 1)
+                self.assertEqual(events.count("key_press_event"), 1)
+                self.assertEqual(events.count("key_release_event"), 1)
+                self.assertFalse(self.view._pressed)
+                self.assertFalse(self.view._keys)
+                for connection in connections:
+                    self.view.canvas.mpl_disconnect(connection)
+
 
     def test_detached_native_release_uses_screen_coordinates_and_button_mapping(self):
         events = []

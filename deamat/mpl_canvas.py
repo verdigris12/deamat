@@ -350,6 +350,10 @@ def _handle_input(view, origin, display_size):
             if hovered and imgui.is_mouse_clicked(index):
                 view.mouse_event("button_press_event", x, y, button=button, key=key,
                                  dblclick=imgui.is_mouse_double_clicked(index))
+            # Native release can precede ImGui's queued press; only release
+            # here if native input has not already cleared the capture.
+            if button in view._pressed and not imgui.is_mouse_down(index):
+                view.mouse_event("button_release_event", x, y, button=button, key=key)
         if hovered and io.mouse_wheel:
             view.mouse_event("scroll_event", x, y, step=io.mouse_wheel, key=key)
         if view._pressed:
@@ -370,6 +374,12 @@ def _handle_input(view, origin, display_size):
             if imgui.is_key_pressed(code, False):
                 view._keys[mpl_key.split("+")[-1]] = mpl_key
                 view.canvas.callbacks.process("key_press_event", KeyEvent("key_press_event", view.canvas, mpl_key, x, y))
+    for name, mpl_key in tuple(view._keys.items()):
+        imgui_name = (name + "_arrow" if name in ("left", "right", "up", "down")
+                      else "space" if name == " " else name)
+        if imgui.is_key_released(getattr(imgui.Key, imgui_name)):
+            del view._keys[name]
+            view.canvas.callbacks.process("key_release_event", KeyEvent("key_release_event", view.canvas, mpl_key, x, y))
 
 
 def draw_figure(gui, fig_id, figure, *, size=None, fit=False, toolbar=True):

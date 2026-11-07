@@ -221,6 +221,10 @@ def _handle_imgui_events(view):
             view._gui._pygfx_keyboard_view = view
             view._buttons.add(n)
             view._dispatch("pointer_down", button=n, **args)
+        # ImGui can deliver a queued press after the native release callback.
+        # The captured set makes this fallback and native release mutually exclusive.
+        if n in view._buttons and not imgui.is_mouse_down(button):
+            view._pointer_release(n, x, y, buttons, modifiers)
     if (hovered or view._hovered or view._buttons) and (view._mouse_pos != (x, y) or hovered != view._hovered):
         # Send one out-of-bounds move on leaving, so pygfx emits pointer_leave.
         move_args = args if hovered or view._buttons else {**args, "x": -1, "y": -1}
