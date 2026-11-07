@@ -108,7 +108,7 @@ class TestFigureCanvas(unittest.TestCase):
         self.view.home()
         np.testing.assert_allclose(self.axes.get_xlim(), initial)
 
-    def test_imgui_releases_captured_drag_outside_image(self):
+    def test_native_releases_captured_drag_outside_image(self):
         initial = self.axes.get_xlim()
         x, y = self.center()
         self.view.mouse_event("button_press_event", x, y, button=MouseButton.LEFT)
@@ -118,15 +118,17 @@ class TestFigureCanvas(unittest.TestCase):
             "deamat.mpl_canvas.imgui",
             get_io=Mock(return_value=io),
             is_item_hovered=Mock(return_value=False),
-            get_mouse_pos=Mock(return_value=SimpleNamespace(x=650, y=150)),
+            get_mouse_pos=Mock(return_value=SimpleNamespace(x=500, y=150)),
             is_key_down=Mock(return_value=False),
-            is_mouse_down=Mock(return_value=False),
+            set_next_frame_want_capture_mouse=Mock(),
         ):
             _handle_input(self.view, SimpleNamespace(x=0, y=0), (400, 300))
+        intermediate = self.axes.get_xlim()
         self.view._native_event({"event_type": "pointer_up", "button": 1,
                                  "x": 650, "y": 150, "modifiers": ()})
         self.assertFalse(self.view._pressed)
         self.assertNotEqual(self.axes.get_xlim(), initial)
+        self.assertNotEqual(self.axes.get_xlim(), intermediate)
         self.view.back()
         np.testing.assert_allclose(self.axes.get_xlim(), initial)
 
