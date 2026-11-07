@@ -59,6 +59,7 @@ def test_native_callback_reports_handler_errors(monkeypatch):
     host.gui = SimpleNamespace(_frame_active=False, _closed=False, _record_error=errors.append)
     host.renderer = SimpleNamespace(imgui_context=object())
     host.callbacks = {}
+    host.enabled = False
     monkeypatch.setattr(host_module, "_address", lambda window: 1)
     monkeypatch.setattr(host_module.imgui, "get_current_context", lambda: host.renderer.imgui_context)
     monkeypatch.setattr(host_module.imgui, "set_current_context", lambda context: None)
@@ -75,6 +76,36 @@ def test_native_callback_reports_handler_errors(monkeypatch):
     assert len(errors) == 1
     assert str(errors[0]) == "input failed"
     assert host.gui._frame_active is False
+
+
+def test_hovered_viewport_is_queued_before_native_mouse_input(monkeypatch):
+    host = host_module.GlfwViewportHost.__new__(host_module.GlfwViewportHost)
+    host.enabled = True
+    host.callbacks = {}
+    events = []
+    host.gui = SimpleNamespace(_frame_active=False, _closed=False,
+                               _record_error=lambda error: events.append(error),
+                               request_draw=lambda: None)
+    host.renderer = SimpleNamespace(imgui_context=object())
+    viewport = SimpleNamespace(id_=42)
+    monkeypatch.setattr(host_module, "_address", lambda window: 1)
+    monkeypatch.setattr(host_module, "_window", lambda viewport: object())
+    monkeypatch.setattr(host_module.glfw, "get_window_attrib", lambda *args: True)
+    monkeypatch.setattr(host_module.imgui, "get_current_context", lambda: host.renderer.imgui_context)
+    monkeypatch.setattr(host_module.imgui, "set_current_context", lambda context: None)
+    monkeypatch.setattr(host_module.imgui, "get_platform_io", lambda: SimpleNamespace(viewports=[viewport]))
+    monkeypatch.setattr(host_module.imgui, "get_io", lambda: SimpleNamespace(
+        add_mouse_viewport_event=lambda identifier: events.append(("viewport", identifier))))
+    names = ("MouseButton", "Key", "CursorPos", "Scroll", "Char", "WindowFocus",
+             "WindowSize", "WindowRefresh", "WindowPos", "WindowClose")
+    setters = {f"glfwSet{name}Callback": lambda window, callback: None for name in names}
+    setters["glfwSetMouseButtonCallback"] = lambda window, callback: (
+        lambda *args: events.append("native mouse"))
+    monkeypatch.setattr(host_module.glfw, "_glfw", SimpleNamespace(**setters))
+    host._mouse = lambda *args: events.append("handler")
+    host._install(None)
+    host.callbacks[1][1][0][1](None, 0, 1, 0)
+    assert events == [("viewport", 42), "native mouse", "handler"]
 
 
 def test_trickled_input_requests_frames_until_queue_is_empty(monkeypatch):

@@ -90,12 +90,14 @@ class GlfwViewportHost:
         ):
             setter = getattr(glfw._glfw, name)
             previous = [None]
-            def dispatch(*args, previous=previous, handler=handler):
+            def dispatch(*args, previous=previous, handler=handler, name=name):
                 previous_context = imgui.get_current_context()
                 imgui.set_current_context(self.renderer.imgui_context)
                 was_active = self.gui._frame_active
                 self.gui._frame_active = True
                 try:
+                    if name in ("glfwSetCursorPosCallback", "glfwSetMouseButtonCallback"):
+                        self._route_mouse_viewport(args[0])
                     if previous[0]:
                         previous[0](*args)
                     if not self.gui._closed:
@@ -116,6 +118,19 @@ class GlfwViewportHost:
 
     def _dirty(self, *args):
         self.gui.request_draw()
+
+    def _route_mouse_viewport(self, window):
+        # The GLFW backend normally queues this in glfw_new_frame(), after
+        # callbacks have already queued mouse movement and button events.
+        # Queue it first so a trickled first click targets the right viewport.
+        if not self.enabled or not glfw.get_window_attrib(window, glfw.HOVERED):
+            return
+        address = _address(window)
+        for viewport in imgui.get_platform_io().viewports:
+            candidate = _window(viewport)
+            if candidate and _address(candidate) == address:
+                imgui.get_io().add_mouse_viewport_event(viewport.id_)
+                break
 
     def _close_window(self, window):
         if _address(window) == _address(self.main):
