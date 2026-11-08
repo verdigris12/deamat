@@ -62,13 +62,21 @@ class _X11ViewportPolicy:
 
 
 
-def _sync_viewport_geometry(viewport, window):
-    """Tell ImGui about native geometry changes before it begins a frame."""
+
+def _sync_viewport_geometry(viewport, window, geometry):
+    """Report native changes, not pending ImGui position or size requests."""
+    address = _address(window)
     x, y = glfw.get_window_pos(window)
     width, height = glfw.get_window_size(window)
-    if (x, y) != (viewport.pos.x, viewport.pos.y):
+    previous = geometry.get(address)
+    geometry[address] = (x, y, width, height)
+    if previous is None:
+        # The WM may have placed or resized a new window before callbacks
+        # were installed. Reconcile that initial geometry once.
+        previous = (viewport.pos.x, viewport.pos.y, viewport.size.x, viewport.size.y)
+    if (x, y) != previous[:2]:
         viewport.platform_request_move = True
-    if (width, height) != (viewport.size.x, viewport.size.y):
+    if (width, height) != previous[2:]:
         viewport.platform_request_resize = True
 
 
@@ -102,6 +110,8 @@ class GlfwViewportHost:
         self.main = gui.canvas._window
         self.surfaces = {}
         self.callbacks = {}
+        self.geometry = {}
+        self._drag_request = None
         self.focus_pending = False
         self._close_frame_pending = False
         # The bundled platform backend and Python GLFW must share one library.
@@ -259,6 +269,35 @@ class GlfwViewportHost:
         self._retire_surfaces(addresses)
         for address in addresses:
             self.callbacks.pop(address, None)
+            self.geometry.pop(address, None)
+            if self._drag_request and self._drag_request[0] == address:
+                self._drag_request = None
+
+    def _reconcile_drag_position(self):
+        moving = imgui.get_current_context().moving_window
+        root = moving.root_window_dock_tree if moving else None
+        viewport = root.viewport if root and root.viewport_owned else None
+        public_viewport = viewport.draw_data_p.owner_viewport if viewport else None
+        window = _window(public_viewport) if public_viewport else None
+        if not window or _address(window) == _address(self.main):
+            self._drag_request = None
+            return
+        address = _address(window)
+        requested = (int(root.pos.x), int(root.pos.y))
+        actual = glfw.get_window_pos(window)
+        if self._drag_request != (address, requested):
+            self._drag_request = (address, requested)
+            if requested != actual:
+                glfw.set_window_pos(window, *requested)
+                actual = glfw.get_window_pos(window)
+        # ImGui's requested drag position can be rejected by the WM. Keep
+        # layout, hit testing and global-coordinate overlays in the confirmed
+        # native coordinate space, separately from the requested position.
+        native_pos = imgui.ImVec2(*actual)
+        imgui.internal.set_window_pos(root, native_pos)
+        public_viewport.pos = native_pos
+        viewport.update_work_rect()
+        viewport.last_platform_pos = native_pos
 
     def _update_platform_windows(self):
         # Render initialized DrawDataP.owner_viewport for every internal
@@ -284,7 +323,7 @@ class GlfwViewportHost:
         # before UpdatePlatformWindows can allocate another GLFW window there.
         live = {address for _, address in snapshot}
         live.add(_address(self.main))
-        self._retire_windows((self.surfaces.keys() | self.callbacks.keys()) - live)
+        self._retire_windows((self.surfaces.keys() | self.callbacks.keys() | self.geometry.keys()) - live)
         # Renderer destruction must precede platform destruction; keep the
         # ctypes callbacks until after GLFW has actually destroyed the window.
         self._retire_surfaces(imminent)
@@ -326,12 +365,14 @@ class GlfwViewportHost:
             for viewport in imgui.get_platform_io().viewports:
                 window = _window(viewport)
                 if window and _address(window) != _address(self.main):
-                    _sync_viewport_geometry(viewport, window)
+                    _sync_viewport_geometry(viewport, window, self.geometry)
         if self.focus_pending:
             self.focus_pending = False
             if not any(glfw.get_window_attrib(window, glfw.FOCUSED) for window, _ in self.callbacks.values()):
                 self.gui._emit_input({"event_type": "focus_out"})
         imgui.new_frame()
+        if self.enabled:
+            self._reconcile_drag_position()
         # Dear ImGui may trickle a burst of input over several frames. The
         # rendercanvas scheduler clears its draw flag before invoking us, so
         # request another frame only while unprocessed events remain.
@@ -412,4 +453,6 @@ class GlfwViewportHost:
         if self.enabled:
             imgui.destroy_platform_windows()
         self.callbacks.clear()
+        self.geometry.clear()
+        self._drag_request = None
         imgui.backends.glfw_shutdown()
