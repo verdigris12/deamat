@@ -29,6 +29,7 @@ def test_reused_native_address_retires_old_resources_before_install(monkeypatch)
     host.geometry = {1: (0, 0, 640, 480), 21: (10, 20, 100, 100),
                      22: (30, 40, 100, 100), 23: (50, 60, 100, 100)}
     host._drag_request = None
+    host._x11_policy = None
     old_surface, stable_surface, stale_surface = Mock(), Mock(), Mock()
     host.surfaces = {21: old_surface, 22: stable_surface, 23: stale_surface}
     monkeypatch.setattr(backend.imgui, "get_current_context", lambda: context)
@@ -80,6 +81,7 @@ def test_surface_released_before_imminent_platform_destruction(
     host.callbacks = {1: object(), 21: object()}
     host.geometry = {1: (0, 0, 640, 480), 21: (10, 20, 100, 100)}
     host._drag_request = None
+    host._x11_policy = None
     host.surfaces = {21: surface}
     monkeypatch.setattr(backend.imgui, "get_current_context", lambda: context)
     monkeypatch.setattr(backend, "_window", lambda v: v.window)
@@ -109,6 +111,7 @@ def test_shutdown_releases_surface_before_destroying_platform_window(monkeypatch
     host.callbacks = {1: (1, []), 21: object()}
     host.geometry = {1: (0, 0, 640, 480), 21: (10, 20, 100, 100)}
     host._drag_request = None
+    host._x11_policy = None
     host.surfaces = {21: surface}
     monkeypatch.setattr(backend, "_address", lambda window: window)
 

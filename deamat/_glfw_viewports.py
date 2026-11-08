@@ -27,7 +27,7 @@ def _address(window):
     return ctypes.cast(window, ctypes.c_void_p).value
 
 class _X11ViewportPolicy:
-    """Identify secondary windows for X11 window managers, without topmost."""
+    """Native X11 identity and ImGui-requested ownership, without topmost."""
 
     def __init__(self):
         self.display = glfw.get_x11_display()
@@ -39,12 +39,20 @@ class _X11ViewportPolicy:
             ctypes.c_int, ctypes.c_int, ctypes.c_void_p, ctypes.c_int,
         )
         self.x11.XFlush.argtypes = (ctypes.c_void_p,)
+        self.x11.XSetTransientForHint.argtypes = (
+            ctypes.c_void_p, ctypes.c_ulong, ctypes.c_ulong,
+        )
+        self.x11.XDeleteProperty.argtypes = (
+            ctypes.c_void_p, ctypes.c_ulong, ctypes.c_ulong,
+        )
+        self.parents = {}
         atom = lambda name: self.x11.XInternAtom(self.display, name, False)
         self.window_type = atom(b"_NET_WM_WINDOW_TYPE")
         self.utility = atom(b"_NET_WM_WINDOW_TYPE_UTILITY")
         self.wm_class = atom(b"WM_CLASS")
         self.atom_type = atom(b"ATOM")
         self.string_type = atom(b"STRING")
+        self.transient_for = atom(b"WM_TRANSIENT_FOR")
 
     def install(self, window):
         xid = glfw.get_x11_window(window)
@@ -58,6 +66,20 @@ class _X11ViewportPolicy:
             self.display, xid, self.wm_class, self.string_type, 8, 0,
             identity, len(identity.raw) - 1,
         )
+        self.x11.XFlush(self.display)
+
+    def set_parent(self, window, parent):
+        address = _address(window)
+        parent_xid = glfw.get_x11_window(parent) if parent else 0
+        if self.parents.get(address, 0) == parent_xid:
+            return
+        xid = glfw.get_x11_window(window)
+        if parent_xid:
+            self.x11.XSetTransientForHint(self.display, xid, parent_xid)
+            self.parents[address] = parent_xid
+        else:
+            self.x11.XDeleteProperty(self.display, xid, self.transient_for)
+            self.parents.pop(address, None)
         self.x11.XFlush(self.display)
 
 
@@ -214,7 +236,7 @@ class GlfwViewportHost:
             self.gui.request_draw()
 
     def _focus(self, window, focused):
-        if not focused:
+        if not focused or self._x11_policy:
             self.focus_pending = True
         self.gui.request_draw()
 
@@ -270,6 +292,8 @@ class GlfwViewportHost:
         for address in addresses:
             self.callbacks.pop(address, None)
             self.geometry.pop(address, None)
+            if self._x11_policy:
+                self._x11_policy.parents.pop(address, None)
             if self._drag_request and self._drag_request[0] == address:
                 self._drag_request = None
 
@@ -368,8 +392,18 @@ class GlfwViewportHost:
                     _sync_viewport_geometry(viewport, window, self.geometry)
         if self.focus_pending:
             self.focus_pending = False
-            if not any(glfw.get_window_attrib(window, glfw.FOCUSED) for window, _ in self.callbacks.values()):
+            focused = next((window for window, _ in self.callbacks.values()
+                            if glfw.get_window_attrib(window, glfw.FOCUSED)), None)
+            if not focused:
                 self.gui._emit_input({"event_type": "focus_out"})
+            elif self._x11_policy:
+                # Resolve focus after native callbacks settle. Redirect focus
+                # within this application only; never steal it from another app.
+                modal = imgui.internal.get_top_most_and_visible_popup_modal()
+                viewport = imgui.find_viewport_by_id(modal.viewport_id) if modal else None
+                target = _window(viewport) if viewport else None
+                if target and _address(target) != _address(focused):
+                    glfw.focus_window(target)
         imgui.new_frame()
         if self.enabled:
             self._reconcile_drag_position()
@@ -407,6 +441,9 @@ class GlfwViewportHost:
                 continue
             address = _address(window)
             self._install(window)
+            if self._x11_policy:
+                parent = imgui.find_viewport_by_id(viewport.parent_viewport_id)
+                self._x11_policy.set_parent(window, _window(parent) if parent else None)
             size = glfw.get_framebuffer_size(window)
             if size[0] <= 0 or size[1] <= 0:
                 continue

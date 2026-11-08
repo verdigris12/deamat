@@ -157,6 +157,10 @@ Detached windows stay separate when they overlap the main window; docking requir
 
 Only already-detached ordinary panes opt out of automatic merging. Main-owned modal dialogs, nested popups and tooltips retain ImGui's normal viewport ownership instead of being forced into separate native windows.
 
+Applications may explicitly give a modal its own native window using `WindowClass.viewport_flags_override_set = imgui.ViewportFlags_.no_auto_merge`. On X11, deamat translates ImGui's `parent_viewport_id` into `WM_TRANSIENT_FOR`, updates or removes it when ownership changes, and retires its cached native identity with the window. It does not create a second logical ownership model.
+
+When an application window gains focus while an ImGui modal blocks it, the X11 host requests focus for that modal after native focus callbacks settle. Focus leaving the application is not redirected. Window-manager activation policy still applies: Sway's default `urgent` policy refuses this activation request. Set `focus_on_window_activation smart` in Sway to allow restoration on the visible workspace. Deamat never changes compositor configuration, forces topmost, or bypasses activation policy. Windows/macOS behavior is unchanged.
+
 Native input callbacks stay alive through platform-window destruction, including transitions where a still-live viewport is temporarily absent from the rendering list. Its presentation surface is unconfigured and released before the native window is destroyed. The main surface synchronizes against the native framebuffer before layout; if a resize races layout, rendering resumes on the next frame with matching dimensions.
 
 On X11, secondary windows use the `DeamatViewport` class, `deamat-viewport` instance and utility window type; the main window's identity is unchanged. They are not forced always-on-top. For Sway/XWayland, add this narrowly scoped rule to your Sway configuration:
