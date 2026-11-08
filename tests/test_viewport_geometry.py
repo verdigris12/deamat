@@ -26,6 +26,9 @@ def test_reused_native_address_retires_old_resources_before_install(monkeypatch)
     host = backend.GlfwViewportHost.__new__(backend.GlfwViewportHost)
     host.main = 1
     host.callbacks = {1: object(), 21: object(), 22: object(), 23: object()}
+    host.geometry = {1: (0, 0, 640, 480), 21: (10, 20, 100, 100),
+                     22: (30, 40, 100, 100), 23: (50, 60, 100, 100)}
+    host._drag_request = None
     old_surface, stable_surface, stale_surface = Mock(), Mock(), Mock()
     host.surfaces = {21: old_surface, 22: stable_surface, 23: stale_surface}
     monkeypatch.setattr(backend.imgui, "get_current_context", lambda: context)
@@ -47,6 +50,8 @@ def test_reused_native_address_retires_old_resources_before_install(monkeypatch)
     monkeypatch.setattr(backend.imgui, "update_platform_windows", update)
     host._update_platform_windows()
     assert 21 not in host.callbacks and 21 not in host.surfaces
+    assert 21 not in host.geometry and 23 not in host.geometry
+    assert 22 in host.geometry
     assert 22 in host.callbacks and host.surfaces[22] is stable_surface
     old_surface.unconfigure.assert_called_once()
     stale_surface.unconfigure.assert_called_once()
@@ -73,6 +78,8 @@ def test_surface_released_before_imminent_platform_destruction(
     host = backend.GlfwViewportHost.__new__(backend.GlfwViewportHost)
     host.main = 1
     host.callbacks = {1: object(), 21: object()}
+    host.geometry = {1: (0, 0, 640, 480), 21: (10, 20, 100, 100)}
+    host._drag_request = None
     host.surfaces = {21: surface}
     monkeypatch.setattr(backend.imgui, "get_current_context", lambda: context)
     monkeypatch.setattr(backend, "_window", lambda v: v.window)
@@ -89,6 +96,7 @@ def test_surface_released_before_imminent_platform_destruction(
     host._update_platform_windows()
     assert (21 in host.callbacks) is not retire
     assert (21 in host.surfaces) is not retire
+    assert (21 in host.geometry) is not retire
 
 
 def test_shutdown_releases_surface_before_destroying_platform_window(monkeypatch):
@@ -99,6 +107,8 @@ def test_shutdown_releases_surface_before_destroying_platform_window(monkeypatch
     host.main = 1
     host.enabled = True
     host.callbacks = {1: (1, []), 21: object()}
+    host.geometry = {1: (0, 0, 640, 480), 21: (10, 20, 100, 100)}
+    host._drag_request = None
     host.surfaces = {21: surface}
     monkeypatch.setattr(backend, "_address", lambda window: window)
 
@@ -111,6 +121,7 @@ def test_shutdown_releases_surface_before_destroying_platform_window(monkeypatch
     monkeypatch.setattr(backend.imgui.backends, "glfw_shutdown", lambda: None)
     host.close()
     assert not host.callbacks and not host.surfaces
+    assert not host.geometry
 
 
 @pytest.mark.skipif(
@@ -165,7 +176,15 @@ def test_detached_resize_converges_to_native_geometry_and_scale(monkeypatch):
         assert viewport.id_ != imgui.get_main_viewport().id_
         window = _window(viewport)
         assert window
+        old_position = glfw.get_window_pos(window)
+        glfw.set_window_pos(window, old_position[0] + 80, old_position[1] + 60)
+        for _ in range(6):
+            frame()
+        native_position = glfw.get_window_pos(window)
+        assert native_position != old_position
+        assert (state["viewport"].pos.x, state["viewport"].pos.y) == pytest.approx(native_position)
         glfw.set_window_size(window, 720, 460)
+        assert glfw.get_window_pos(window) == native_position
         for _ in range(6):
             frame()
         viewport = state["viewport"]

@@ -10,6 +10,7 @@ from pathlib import Path
 import shutil
 import subprocess
 import sys
+import threading
 import time
 
 import pytest
@@ -25,6 +26,57 @@ def _worker(state_path):
     imgui.get_io().set_ini_filename("")
     opened = True
     frames = 0
+    control = Path(state_path + ".drag")
+    sequence = {"step": None, "viewport": None, "start": None, "samples": []}
+    stopped = threading.Event()
+    original_new_frame = imgui.backends.glfw_new_frame
+    original_render = gui._viewport_host.render
+
+    def presented_render():
+        original_render()
+        path = Path(state_path)
+        if not path.exists():
+            return
+        d = json.loads(path.read_text())
+        viewport = next((v for v in imgui.get_platform_io().viewports
+                         if v.id_ == d.get("viewport")), None)
+        win = _window(viewport) if viewport else None
+        if win:
+            d["native_pos"] = list(glfw.get_window_pos(win))
+            d["native_size"] = list(glfw.get_window_size(win))
+        tmp = Path(state_path + ".presented.tmp")
+        tmp.write_text(json.dumps(d))
+        tmp.replace(state_path + ".presented")
+
+    gui._viewport_host.render = presented_render
+
+    def input_frame():
+        original_new_frame()
+        if sequence["step"] is None and control.exists() and sequence["start"] is not None:
+            sequence["step"] = 0
+        step = sequence["step"]
+        if step is None or step > 30:
+            return
+        io = imgui.get_io()
+        io.add_mouse_viewport_event(sequence["viewport"])
+        x, y = sequence["start"]
+        if step >= 7:
+            x, y = x + 180, y - 120
+        io.add_mouse_pos_event(x, y)
+        if step == 3:
+            io.add_mouse_button_event(0, True)
+        elif step == 27:
+            io.add_mouse_button_event(0, False)
+        sequence["step"] += 1
+
+    imgui.backends.glfw_new_frame = input_frame
+
+    def wake_for_control():
+        while not stopped.wait(.05):
+            if control.exists() and sequence["step"] is None:
+                gui.request_draw()
+
+    threading.Thread(target=wake_for_control, daemon=True).start()
 
     def update(_state, _gui, _dt):
         nonlocal opened, frames
@@ -44,6 +96,10 @@ def _worker(state_path):
         visible, opened = imgui.begin("Viewport acceptance pane", opened)
         vp = imgui.get_window_viewport()
         win = _window(vp)
+        if win and vp.id_ != imgui.get_main_viewport().id_ and sequence["step"] is None:
+            native_x, native_y = glfw.get_window_pos(win)
+            sequence["viewport"] = vp.id_
+            sequence["start"] = (native_x + 40, native_y + imgui.get_frame_height() / 2)
         if visible and opened:
             imgui.text("Native viewport acceptance")
             imgui.text("A square below must remain square after resizing")
@@ -58,13 +114,35 @@ def _worker(state_path):
                 "native_size": list(glfw.get_window_size(win)) if win else None,
                 "main_size": list(glfw.get_window_size(gui.canvas._window)),
                 "errors": [str(e) for e in gui.errors]}
+        step = sequence["step"]
+        if step is not None:
+            window = imgui.internal.find_window_by_name("Viewport acceptance pane")
+            moving = imgui.get_current_context().moving_window
+            if 12 <= step <= 27:
+                sequence["samples"].append({
+                    "frame": frames,
+                    "moving": bool(moving and moving.name == "Viewport acceptance pane"),
+                    "mouse_down": bool(imgui.get_io().mouse_down[0]),
+                    "mouse_pos": [imgui.get_io().mouse_pos.x, imgui.get_io().mouse_pos.y],
+                    "window_pos": [window.pos.x, window.pos.y],
+                    "viewport_pos": [vp.pos.x, vp.pos.y],
+                    "native_pos": list(glfw.get_window_pos(win)),
+                })
+            data["drag_samples"] = sequence["samples"]
+            data["drag_done"] = step > 30
+            if step <= 30:
+                gui.request_draw()
         imgui.end()
         tmp = Path(state_path + ".tmp")
         tmp.write_text(json.dumps(data))
         tmp.replace(state_path)
 
     gui.update = update
-    gui.run()
+    try:
+        gui.run()
+    finally:
+        stopped.set()
+        imgui.backends.glfw_new_frame = original_new_frame
 
 
 def _wait(predicate, description, timeout=15):
@@ -159,6 +237,30 @@ exec sh -c 'printf \"DISPLAY=%s\\nWAYLAND_DISPLAY=%s\\nSWAYSOCK=%s\\n\" \"$DISPL
             for output in ("HEADLESS-1", "HEADLESS-2"):
                 subprocess.run(["grim", "-o", output, str(tmp_path / f"{label}-{output}.png")], env=env, check=True)
             return d
+        def presented_fullscreen(label, enabled, previous):
+            def check():
+                d = json.loads(Path(str(state) + ".presented").read_text())
+                n = pane()
+                if not n or bool(n.get("fullscreen_mode")) != enabled or d["frame"] <= previous:
+                    return False
+                if not d.get("native_size"):
+                    return False
+                rect, client = n["rect"], n["window_rect"]
+                origin = (rect["x"] + client["x"], rect["y"] + client["y"])
+                size = (client["width"], client["height"])
+                for actual, expected in ((d["native_pos"], origin), (d["native_size"], size),
+                                         (d["viewport_pos"], d["native_pos"]),
+                                         (d["viewport_size"], d["native_size"])):
+                    if any(abs(a-b) > 2 for a, b in zip(actual, expected)):
+                        return False
+                assert not d["errors"], d
+                return d
+            _wait(check, label)
+            for output in ("HEADLESS-1", "HEADLESS-2"):
+                subprocess.run(["grim", "-o", output, str(tmp_path / f"{label}-{output}.png")],
+                               env=env, check=True)
+            return _wait(check, label + " after capture")
+
 
         p = _wait(pane, "detached native pane")
         m = _wait(main, "main native window")
@@ -166,13 +268,37 @@ exec sh -c 'printf \"DISPLAY=%s\\nWAYLAND_DISPLAY=%s\\nSWAYSOCK=%s\\n\" \"$DISPL
         assert p["window_properties"]["class"] != m["window_properties"]["class"], (p, m)
         cmd(m["id"], "floating enable")
         d = settled("initial")
-        for output in ("HEADLESS-2", "HEADLESS-1", "HEADLESS-2"):
+        control = Path(str(state) + ".drag")
+        control.write_text("start")
+        d = _wait(lambda: (s if (s := data()).get("drag_done") else None),
+                  "synthetic ImGui caption drag")
+        samples = d["drag_samples"]
+        assert len(samples) >= 10, samples
+        assert all(sample["moving"] and sample["mouse_down"] for sample in samples), samples
+        assert len({tuple(sample["mouse_pos"]) for sample in samples}) == 1, samples
+        assert len({tuple(sample["native_pos"]) for sample in samples}) == 1, samples
+        for sample in samples:
+            assert sample["window_pos"] == pytest.approx(sample["native_pos"], abs=2), sample
+            assert sample["viewport_pos"] == pytest.approx(sample["native_pos"], abs=2), sample
+        assert not d["errors"], d
+        current_output = next(n["name"] for n in _nodes(tree())
+                              if n.get("type") == "output"
+                              and any(x.get("id") == p["id"] for x in _nodes(n)))
+        other_output = "HEADLESS-1" if current_output == "HEADLESS-2" else "HEADLESS-2"
+        for output in (other_output, current_output, other_output):
             cmd(p["id"], f"move container to output {output}")
             _wait(lambda: next((n for n in _nodes(tree()) if n.get("name") == output and any(x.get("id") == p["id"] for x in _nodes(n))), None), f"move to {output}")
             d = settled(f"move-{output}-{d['frame']}", d["frame"])
         old_pane_size = d["native_size"]
         cmd(p["id"], "resize set 700 500")
         d = settled("resize-pane", d["frame"], ("native_size", old_pane_size))
+        before_fullscreen = d["native_size"]
+        cmd(p["id"], "fullscreen enable")
+        d = presented_fullscreen("fullscreen-pane", True, d["frame"])
+        fullscreen_size = d["native_size"]
+        cmd(p["id"], "fullscreen disable")
+        d = presented_fullscreen("restore-pane", False, d["frame"])
+        assert d["native_size"] == pytest.approx(before_fullscreen, abs=2)
         old_main_size = d["main_size"]
         cmd(m["id"], "resize set 900 650")
         d = settled("resize-main", d["frame"], ("main_size", old_main_size))
