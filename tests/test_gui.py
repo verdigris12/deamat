@@ -1,7 +1,14 @@
 import asyncio
 from concurrent.futures import Future, ProcessPoolExecutor
+from concurrent.futures.process import BrokenProcessPool
 from queue import Empty, SimpleQueue
 import threading
+import multiprocessing as mp
+import os
+from pathlib import Path
+import signal
+import sys
+import time
 from types import SimpleNamespace
 
 import pytest
@@ -276,20 +283,17 @@ def test_close_is_idempotent_and_does_not_deliver_late_results(gui_factory):
     gui.add_cleanup(lambda: cleanups.append(("second", threading.get_ident())))
     results = []
     pending = gui.submit_job(int, callback=results.append)
-    running = gui.submit_job(int, callback=results.append)
-    running.set_running_or_notify_cancel()
+    queued = gui.submit_job(int, callback=results.append)
     gui.close()
     gui.close()
     assert pending.cancelled()
-    assert not running.cancelled()
-    on_worker(lambda: running.set_result(5))
-    assert running.result() == 5
+    assert queued.cancelled()
     assert gui._posts.empty()
     assert results == []
     assert gui.job_counter == 0
     assert cleanups == [("second", threading.get_ident()), ("first", threading.get_ident())]
     assert gui.canvas.close_count == 1
-    assert gui.executor.shutdown_calls == [{"wait": False, "cancel_futures": True}]
+    assert gui.executor.shutdown_calls == [{"wait": True, "cancel_futures": True}]
     assert gui.asyncio_loop.is_closed()
     with pytest.raises(RuntimeError, match="closed"):
         gui.add_cleanup(lambda: None)
@@ -411,6 +415,115 @@ def test_real_spawn_job_returns_result_and_dispatches_callback(gui_factory, monk
     assert received == [(42, "spawn")]
     assert gui.job_counter == 0
     gui.close()
+
+
+def _blocking_worker(ready, ignore_term=False):
+    if ignore_term:
+        signal.signal(signal.SIGTERM, signal.SIG_IGN)
+    Path(ready).write_text(str(os.getpid()))
+    while True:
+        time.sleep(1)
+
+
+def _pool_parent(ready):
+    executor = ProcessPoolExecutor(
+        max_workers=1, mp_context=mp.get_context("spawn"),
+        initializer=gui_module._worker_initializer, initargs=(os.getpid(),),
+    )
+    executor.submit(_blocking_worker, ready, True)
+    while True:
+        time.sleep(1)
+
+
+def _wait_for_file(path, timeout=30):
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if path.exists():
+            value = path.read_text()
+            if value:
+                return value
+        time.sleep(0.02)
+    pytest.fail(f"worker did not create {path}")
+
+
+@pytest.mark.skipif(sys.platform != "linux", reason="Linux signals and process state")
+@pytest.mark.parametrize("close_path", ["close", "canvas", "run"])
+def test_close_terminates_owned_workers_before_cleanup(
+    gui_factory, monkeypatch, tmp_path, close_path
+):
+    create, _ = gui_factory
+    monkeypatch.setattr(gui_module, "ProcessPoolExecutor", ProcessPoolExecutor)
+    gui = create(max_workers=1)
+    ready = tmp_path / "running"
+    queued_ready = tmp_path / "queued"
+    results = []
+    running = gui.submit_job(_blocking_worker, str(ready), True, callback=results.append)
+    _wait_for_file(ready)
+    workers = tuple(gui.executor._processes.values())
+    queued = gui.submit_job(_blocking_worker, str(queued_ready), callback=results.append)
+    alive_at_cleanup = []
+    gui.add_cleanup(lambda: alive_at_cleanup.extend(p.is_alive() for p in workers))
+    start = time.monotonic()
+    if close_path == "close":
+        gui.close()
+    elif close_path == "canvas":
+        gui.canvas.handlers["close"]({"event_type": "close"})
+    else:
+        gui.run()
+    assert time.monotonic() - start < 10
+    gui.close()
+    assert alive_at_cleanup == [False]
+    assert all(not process.is_alive() for process in workers)
+    assert running.done() and queued.done()
+    assert not queued_ready.exists()
+    assert results == []
+    assert gui._posts.empty()
+
+
+@pytest.mark.skipif(sys.platform != "linux", reason="Linux parent-death signal")
+def test_sigkill_parent_kills_pool_worker(tmp_path):
+    ready = tmp_path / "worker"
+    parent = mp.get_context("spawn").Process(target=_pool_parent, args=(str(ready),))
+    parent.start()
+    worker_pid = None
+    try:
+        worker_pid = int(_wait_for_file(ready))
+        parent.kill()
+        parent.join(timeout=10)
+        assert not parent.is_alive()
+        deadline = time.monotonic() + 10
+        while time.monotonic() < deadline:
+            try:
+                state = Path(f"/proc/{worker_pid}/stat").read_text().split(") ", 1)[1][0]
+            except FileNotFoundError:
+                worker_pid = None
+                break
+            if state == "Z":
+                worker_pid = None
+                break
+            time.sleep(0.02)
+        else:
+            pytest.fail(f"worker {worker_pid} survived its parent")
+    finally:
+        if parent.is_alive():
+            parent.kill()
+            parent.join()
+        if worker_pid is not None:
+            try:
+                os.kill(worker_pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+
+
+@pytest.mark.skipif(sys.platform != "linux", reason="Linux parent-death signal")
+def test_worker_initializer_exits_if_parent_already_changed():
+    with ProcessPoolExecutor(
+        max_workers=1, mp_context=mp.get_context("spawn"),
+        initializer=gui_module._worker_initializer, initargs=(0,),
+    ) as executor:
+        future = executor.submit(_worker_identity, 1)
+        with pytest.raises(BrokenProcessPool):
+            future.result(timeout=30)
 
 
 def test_figures_are_lazy_and_removed_views_are_disposed(monkeypatch):

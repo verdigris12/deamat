@@ -143,7 +143,7 @@ Construct and run `GUI` on the main thread. GUI state and all Matplotlib/ImGui/G
 - `gui.submit_job(function, *args, callback=None)` returns the process-computation Future. Its optional result callback runs on the GUI thread; completion of the Future does not mean that callback has already run. Functions and arguments must be spawn-pickleable: define worker functions at module scope and guard the entry point.
 - Background/callback failures are logged and retained in `gui.errors`; posted callback exceptions are available on their returned Future.
 - `gui.add_cleanup(callback)` registers reverse-order, one-time UI-thread resource disposal.
-- `gui.close()` is idempotent and safe from a UI callback. Pending work is cancelled where possible. **Already-running process jobs continue; Python waits for them at interpreter exit.** Coroutines must cooperate with cancellation; an async shutdown exceeding one second is reported.
+- `gui.close()` is idempotent and safe from a UI callback. Pending jobs are cancelled; running process workers are terminated and joined before resource cleanup. Workers that do not stop within a shared one-second grace period are killed. On Linux, pool workers also die if the GUI process exits abruptly, including SIGKILL. This ownership covers the executor workers, not subprocesses created by user jobs. Coroutines must cooperate with cancellation; an async shutdown exceeding one second is reported.
 
 `GUI(..., update_mode="continuous", max_fps=60)` controls the rendercanvas scheduler. `update_mode="ondemand"` is useful for non-animated applications: input and posted work request frames; call `gui.request_draw()` when external state needs a frame.
 

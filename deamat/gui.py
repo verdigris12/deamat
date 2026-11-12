@@ -5,6 +5,10 @@ import threading
 from concurrent.futures import Future, ProcessPoolExecutor
 from queue import Empty, SimpleQueue
 import multiprocessing as mp
+import os
+import signal
+import sys
+import time
 
 import glfw
 from rendercanvas.auto import RenderCanvas, loop
@@ -13,6 +17,46 @@ import wgpu
 import pygfx as gfx
 from pygfx.renderers.wgpu.engine.shared import Shared
 from imgui_bundle import imgui
+
+
+def _worker_initializer(parent_pid: int) -> None:
+    """Make Linux pool workers die with the process that created the pool."""
+    if sys.platform != "linux":
+        return
+    import ctypes
+
+    libc = ctypes.CDLL(None, use_errno=True)
+    # SIGKILL cannot be ignored by a job. Check the parent after prctl to
+    # cover the race where it died before the death signal was installed.
+    if libc.prctl(1, signal.SIGKILL, 0, 0, 0) != 0:  # PR_SET_PDEATHSIG
+        raise OSError(ctypes.get_errno(), "prctl(PR_SET_PDEATHSIG) failed")
+    if os.getppid() != parent_pid:
+        os._exit(1)
+
+
+def _stop_executor(executor: ProcessPoolExecutor) -> None:
+    """Terminate only this executor's workers, escalating before joining."""
+    # Python 3.11–3.13 have no public API to terminate executor workers.
+    # Snapshot before shutdown clears the executor's process registry.
+    processes = tuple(getattr(executor, "_processes", {}).copy().values())
+    for process in processes:
+        if process.is_alive():
+            try:
+                process.terminate()
+            except ProcessLookupError:
+                pass
+    deadline = time.monotonic() + 1.0
+    for process in processes:
+        process.join(timeout=max(0.0, deadline - time.monotonic()))
+    for process in processes:
+        if process.is_alive():
+            try:
+                process.kill()
+            except ProcessLookupError:
+                pass
+    for process in processes:
+        process.join()
+    executor.shutdown(wait=True, cancel_futures=True)
 
 
 def _configure_pygfx_features() -> None:
@@ -116,7 +160,8 @@ class GUI:
 
         # Explicit spawn policy avoids inheriting GUI/GPU resources in workers.
         self.executor = ProcessPoolExecutor(
-            max_workers=max_workers, mp_context=mp.get_context("spawn")
+            max_workers=max_workers, mp_context=mp.get_context("spawn"),
+            initializer=_worker_initializer, initargs=(os.getpid(),),
         )
         self.job_counter: int = 0
         self.canvas.add_event_handler(self._on_canvas_close, "close")
@@ -408,10 +453,9 @@ class GUI:
         self._cleanups.append(callback)
 
     def close(self) -> None:
-        """Close once without waiting for running process jobs.
+        """Close once, terminating and joining owned process workers.
 
-        Pending jobs are cancelled where possible. Running process jobs continue;
-        Python itself waits for those workers at interpreter exit. Coroutines
+        Pending jobs are cancelled and running jobs are terminated. Coroutines
         must cooperate with cancellation; an unresponsive async thread is a
         reported error and is left daemonized after a bounded one-second join.
         Closing inside a UI callback defers resource disposal until the complete
@@ -444,7 +488,7 @@ class GUI:
         self._jobs.clear()
         self.job_counter = 0
         self.state.statusline = "Closed"
-        self.executor.shutdown(wait=False, cancel_futures=True)
+        _stop_executor(self.executor)
         if self.asyncio_thread.ident is None:
             self.asyncio_loop.close()
         else:
