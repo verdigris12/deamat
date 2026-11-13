@@ -82,6 +82,7 @@ class GUI:
         self._frame_active = False
         self._rendered = False
         self._startup_frames_remaining = 4
+        self._frame_error = None
         self._shutdown_complete = False
         self._dispatch_ready = False
         self._cleanups = []
@@ -243,6 +244,10 @@ class GUI:
                     # Hello ImGui maps its initially hidden main window on
                     # frame four, even when the application renders on demand.
                     self.request_draw()
+            if self._frame_error is not None:
+                error, traceback = self._frame_error
+                self._frame_error = None
+                raise error.with_traceback(traceback)
         finally:
             self._frame_active = False
             if self._closed:
@@ -256,25 +261,30 @@ class GUI:
         dt = now - self._last_frame
         self._last_frame = now
 
-        self._drain_posts()
-        if self._closed:
-            return
-
-        # Update window dimensions in state
-        self.state.update_window(self.canvas)
-
-        # Create main docking window
-        self._create_main_window()
-
-        # Call user update callback
+        # Recover all ImGui stacks before returning to the runner. It must
+        # finish rendering before an exception can escape.
+        recovery = imgui.internal.ErrorRecoveryState()
+        imgui.internal.error_recovery_store_state(recovery)
         try:
+            self._drain_posts()
+            if self._closed:
+                return
+            self.state.update_window(self.canvas)
+            self._create_main_window()
             if self.update is not None:
                 self.update(self.state, self, dt)
-        except Exception as error:
-            self._record_error(error)
-            raise
-        finally:
             imgui.end()
+        except BaseException as error:
+            io = imgui.get_io()
+            enable_assert = io.config_error_recovery_enable_assert
+            io.config_error_recovery_enable_assert = False
+            try:
+                imgui.internal.error_recovery_try_to_recover_state(recovery)
+            finally:
+                io.config_error_recovery_enable_assert = enable_assert
+            if isinstance(error, Exception):
+                self._record_error(error)
+            self._frame_error = (error, error.__traceback__)
 
     # ------------------------------------------------------------------
     # Public helpers

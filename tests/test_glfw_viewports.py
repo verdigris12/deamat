@@ -115,6 +115,27 @@ def test_close_before_first_frame_does_not_call_update():
     assert not gui.errors
 
 
+def test_failed_update_recovers_frame_and_allows_another_gui():
+    gui = GUI(GUIState(), width=640, height=480)
+    error = ValueError("failed inside nested window")
+
+    def update(_state, _gui, _dt):
+        imgui.begin("Unfinished nested window")
+        imgui.push_style_var(imgui.StyleVar_.alpha, 0.5)
+        raise error
+
+    gui.update = update
+    with pytest.raises(ValueError, match="failed inside nested window") as caught:
+        gui.run()
+    assert caught.value is error
+    assert gui._shutdown_complete
+    assert gui.errors == [error]
+
+    next_gui = GUI(GUIState(), width=640, height=480)
+    next_gui.close()
+    assert next_gui._shutdown_complete
+
+
 def test_native_main_close_shuts_down_before_window_destruction():
     gui = GUI(GUIState(), width=640, height=480)
     try:
