@@ -92,6 +92,7 @@ def gui_factory(monkeypatch):
     monkeypatch.setattr(gui_module.imgui, "get_io", lambda: SimpleNamespace(config_flags=0))
     monkeypatch.setattr(gui_module.imgui, "get_current_context", lambda: None)
     monkeypatch.setattr(gui_module.imgui, "set_current_context", lambda context: None)
+    monkeypatch.setattr(gui_module.imgui.internal, "error_recovery_store_state", lambda state: None)
     monkeypatch.setattr(gui_module.glfw, "make_context_current", lambda window: None)
     monkeypatch.setattr(gui_module.glfw, "post_empty_event", render_loop.wake)
     monkeypatch.setattr(gui_module, "ProcessPoolExecutor", Executor)
