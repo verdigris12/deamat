@@ -189,7 +189,7 @@ The Python GLFW binding and imgui-bundle must use the same GLFW library. Import 
 
 `pygfx_canvas(gui, state, id, on_init=None, controller=None, *, camera=None, continuous=True)` returns a public `PygfxCanvas` handle with `scene`, `camera`, `controller`, `renderer`, `invalidate()` and `close()`. An initializer receives `(scene, camera)` and may return a replacement camera. Do not access private GUI scene dictionaries.
 
-The canvas retains its offscreen target and shares the resulting GPU texture with ImGui without CPU readback. It forwards pointer, wheel and keyboard input, including captured releases outside the canvas. Controller camera filters are preserved; resizing preserves camera field of view/world-space extents. Set `material.pick_write=True` for pygfx objects that need pick events.
+The canvas retains its offscreen WGPU target. When the scene redraws, it reads back RGBA pixels and updates an OpenGL image for ImGui. Static scenes reuse that image without repeated readback. It forwards pointer, wheel and keyboard input, including captured releases outside the canvas. Controller camera filters are preserved; resizing preserves camera field of view/world-space extents. Set `material.pick_write=True` for pygfx objects that need pick events.
 
 Use `continuous=False` for static scenes and call `invalidate()` after scene changes. Animated scenes should update existing geometry buffers/materials rather than allocating a new scene every frame. See `examples/5-pygfx.py`, `examples/6-pygfx_more.py` and `examples/8-pygfx_2d.py`.
 
