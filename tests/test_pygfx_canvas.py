@@ -1,6 +1,10 @@
 """Real pygfx event/camera/target tests; only the immediate-mode UI is simulated."""
 
 import importlib
+import os
+from pathlib import Path
+import subprocess
+import sys
 from types import SimpleNamespace
 
 import numpy as np
@@ -28,7 +32,8 @@ class Image:
 
 
 @pytest.fixture
-def host():
+def host(monkeypatch):
+    monkeypatch.setattr(canvas_module.glfw, "make_context_current", lambda window: None)
     images = []
     def create_image(pixels):
         image = Image(pixels)
@@ -290,3 +295,88 @@ def test_init_can_select_camera_before_first_render(host, ui):
     view = canvas_module.pygfx_canvas(gui, None, "view", on_init=lambda scene, camera: selected)
     assert view.camera is selected
     assert (selected.width, selected.height) == (9, 7)
+
+
+def _native_context_worker():
+    """Exercise the first adapter probe and real GL textures in a fresh process."""
+    import ctypes
+    from deamat import GUI, GUIState
+    import glfw
+    from OpenGL import GL
+    import wgpu
+    from pygfx.renderers.wgpu.engine.shared import Shared
+
+    gui = GUI(GUIState(), width=320, height=240)
+    patch = pytest.MonkeyPatch()
+    try:
+        gui.make_current()
+        context_address = ctypes.cast(glfw.get_current_context(), ctypes.c_void_p).value
+        assert context_address
+        assert Shared._instance is None
+        original_probe = wgpu.gpu.request_adapter_sync
+        probes = []
+
+        def probe(*args, **kwargs):
+            assert not glfw.get_current_context()
+            probes.append(True)
+            return original_probe(*args, **kwargs)
+
+        def failing_probe(*args, **kwargs):
+            assert not glfw.get_current_context()
+            raise RuntimeError("probe failure")
+
+        patch.setattr(wgpu.gpu, "request_adapter_sync", failing_probe)
+        with pytest.raises(RuntimeError, match="probe failure"):
+            canvas_module.PygfxCanvas(gui, "failure", (120, 100), 1)
+        assert ctypes.cast(glfw.get_current_context(), ctypes.c_void_p).value == context_address
+        assert GL.glGetString(GL.GL_VERSION)
+        patch.setattr(wgpu.gpu, "request_adapter_sync", probe)
+        state = ui.__wrapped__(patch)
+        original_create_image = gui.create_image
+
+        def create_image(pixels):
+            assert ctypes.cast(glfw.get_current_context(), ctypes.c_void_p).value == context_address
+            return original_create_image(pixels)
+
+        patch.setattr(gui, "create_image", create_image)
+        camera = gfx.OrthographicCamera(4, 4)
+        def init(scene, camera):
+            scene.add(gfx.Mesh(gfx.plane_geometry(2, 2), gfx.MeshBasicMaterial(color="red", pick_write=True)))
+
+        view = canvas_module.pygfx_canvas(gui, None, "native", camera=camera, on_init=init)
+        assert probes
+
+        def assert_texture():
+            assert ctypes.cast(glfw.get_current_context(), ctypes.c_void_p).value == context_address
+            assert GL.glIsTexture(view._image._texture)
+            GL.glBindTexture(GL.GL_TEXTURE_2D, view._image._texture)
+            pixels = np.frombuffer(GL.glGetTexImage(GL.GL_TEXTURE_2D, 0, GL.GL_RGBA, GL.GL_UNSIGNED_BYTE),
+                                   dtype=np.uint8).reshape(view._image.size[1], view._image.size[0], 4)
+            center = pixels[pixels.shape[0] // 2, pixels.shape[1] // 2]
+            assert center[0] > 200 and center[1] < 30 and center[2] < 30
+
+        assert_texture()
+        view._dispatch("pointer_move", x=60, y=50, button=0, buttons=(), modifiers=(), pointer_id=0)
+        assert ctypes.cast(glfw.get_current_context(), ctypes.c_void_p).value == context_address
+        view._resize((160, 100), 1)
+        assert ctypes.cast(glfw.get_current_context(), ctypes.c_void_p).value == context_address
+        state.width = 160
+        canvas_module.pygfx_canvas(gui, None, "native", camera=camera)
+        assert_texture()
+        view.close()
+        assert ctypes.cast(glfw.get_current_context(), ctypes.c_void_p).value == context_address
+        image = gui.create_image(np.full((2, 2, 4), 255, dtype=np.uint8))
+        assert GL.glIsTexture(image._texture)
+        image.close()
+    finally:
+        patch.undo()
+        gui.close()
+
+
+@pytest.mark.skipif(os.environ.get("DEAMAT_PYGFX_NATIVE") != "1", reason="explicit isolated-display native test")
+def test_native_gl_context_ownership():
+    subprocess.run(
+        [sys.executable, "-c",
+         "import runpy, sys; runpy.run_path(sys.argv[1])['_native_context_worker']()", str(Path(__file__).resolve())],
+        check=True, timeout=120,
+    )

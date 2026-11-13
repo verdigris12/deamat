@@ -2,10 +2,22 @@
 
 from __future__ import annotations
 
+from contextlib import contextmanager
 from typing import TYPE_CHECKING, Any, Callable
 from weakref import ref
 
 from imgui_bundle import imgui
+import glfw
+
+
+@contextmanager
+def _wgpu_context(gui):
+    """Release GLFW's GL context while wgpu owns the thread's GPU context."""
+    glfw.make_context_current(None)
+    try:
+        yield
+    finally:
+        gui.make_current()
 
 if TYPE_CHECKING:
     import pygfx as gfx
@@ -36,7 +48,7 @@ class PygfxCanvas:
 
         self._gfx = gfx
         self._wgpu = wgpu
-        try:
+        with _wgpu_context(gui):
             if Shared._instance is None:
                 adapter = wgpu.gpu.request_adapter_sync(power_preference="high-performance")
                 Shared._features = Shared._features & set(adapter.features)
@@ -44,8 +56,6 @@ class PygfxCanvas:
             self.renderer = gfx.WgpuRenderer(self._target, pixel_scale=1, enable_events=False)
             self._context = self._target.get_context("wgpu")
             self._configure_target()
-        finally:
-            gui.make_current()
         self._gui = gui
         self._canvas_id = canvas_id
         self.scene = gfx.Scene()
@@ -130,7 +140,8 @@ class PygfxCanvas:
             self._gui.request_draw()
 
     def _dispatch(self, event_type, **event):
-        self.renderer.convert_event({"event_type": event_type, **event})
+        with _wgpu_context(self._gui):
+            self.renderer.convert_event({"event_type": event_type, **event})
         self.invalidate()
 
     def _native_event(self, event):
@@ -175,15 +186,13 @@ class PygfxCanvas:
     def _resize(self, size, pixel_ratio):
         if (size, pixel_ratio) == (self._size, self._pixel_ratio):
             return
-        self._texture.destroy()
-        self._texture = None
-        self._context.unconfigure()
-        self._target.set_pixel_ratio(pixel_ratio)
-        self._target.set_logical_size(*size)
-        try:
+        with _wgpu_context(self._gui):
+            self._texture.destroy()
+            self._texture = None
+            self._context.unconfigure()
+            self._target.set_pixel_ratio(pixel_ratio)
+            self._target.set_logical_size(*size)
             self._configure_target()
-        finally:
-            self._gui.make_current()
         self._size, self._pixel_ratio = size, pixel_ratio
         # set_view_size affects projection, never camera world extents or FOV.
         self.camera.set_view_size(*size)
@@ -203,15 +212,16 @@ class PygfxCanvas:
         if self._image is not None:
             self._image.close()
             self._image = None
-        self._texture.destroy()
-        self._texture = None
-        self._context.unconfigure()
-        self._target.close()
+        with _wgpu_context(self._gui):
+            self._texture.destroy()
+            self._texture = None
+            self._context.unconfigure()
+            self._target.close()
+            # Pygfx has no renderer.close(); dropping it releases its internal buffers.
+            self.renderer = self._viewport = self._context = self._target = None
         if self._gui._pygfx_scenes.get(self._canvas_id) is self:
             self._gui._pygfx_scenes.pop(self._canvas_id)
             self._gui.scenes.pop(self._canvas_id, None)
-        # Pygfx has no renderer.close(); dropping it releases its internal buffers.
-        self.renderer = self._viewport = self._context = self._target = None
 
 
 def _handle_imgui_events(view):
@@ -292,7 +302,7 @@ def pygfx_canvas(
     changed = view.controller.tick() if view.controller is not None else None
     if continuous or view._dirty or changed is not None:
         view._dirty = False
-        try:
+        with _wgpu_context(gui):
             view.renderer.render(view.scene, view.camera)
             width, height, _ = view._texture.size
             pixels = view.renderer.device.queue.read_texture(
@@ -300,8 +310,6 @@ def pygfx_canvas(
                 {"bytes_per_row": width * 4, "rows_per_image": height},
                 (width, height, 1),
             )
-        finally:
-            gui.make_current()
         import numpy as np
         rgba = np.frombuffer(pixels, dtype=np.uint8).reshape(height, width, 4)
         if view._image is None:
