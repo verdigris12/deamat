@@ -2,7 +2,6 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-import wgpu
 
 from deamat.widgets.file_dialog import DialogResult, FileDialog
 import deamat.widgets.file_dialog as dialog_module
@@ -12,13 +11,9 @@ class NativeDialog:
     def __init__(self):
         self.done = False
         self.results = []
-        self.callbacks = None
-
-    def set_texture_callbacks(self, create, delete):
-        self.callbacks = (create, delete)
-
-    def clear_texture_callbacks(self):
-        self.callbacks = None
+        self.close_count = 0
+        self.referenced = False
+        self.submitted = False
 
     def open(self, *args):
         return True
@@ -27,6 +22,8 @@ class NativeDialog:
         return True
 
     def is_done(self, key):
+        self.referenced = True
+        self.submitted = False
         return self.done
 
     def has_result(self):
@@ -39,69 +36,39 @@ class NativeDialog:
         return [SimpleNamespace(path=lambda path=path: path) for path in self.results]
 
     def close(self):
-        pass
+        assert not self.referenced or self.submitted
+        self.close_count += 1
 
 
-class Texture:
-    def __init__(self):
-        self.destroyed = False
-
-    def create_view(self):
-        return self
-
-    def destroy(self):
-        self.destroyed = True
-
-
-class Backend:
-    def __init__(self):
-        self.registered = []
-        self.unregistered = []
-
-    def register_texture(self, view):
-        tex_id = len(self.registered) + 1
-        ref = SimpleNamespace(get_tex_id=lambda: tex_id)
-        self.registered.append((ref, view))
-        return ref
-
-    def unregister_texture(self, ref):
-        self.unregistered.append(ref)
-
-
-class Device:
-    def __init__(self):
-        self.textures = []
-        self.queue = self
-
-    def create_texture(self, **kwargs):
-        texture = Texture()
-        self.textures.append((texture, kwargs))
-        return texture
-
-    def write_texture(self, **kwargs):
-        pass
+def submit_frame(dialog, native):
+    native.submitted = True
+    dialog._gui._frame_active = False
+    while dialog._gui.posts:
+        dialog._gui.posts.pop(0)()
+    dialog._gui._frame_active = True
 
 
 @pytest.fixture
 def widget(monkeypatch):
     native = NativeDialog()
-    monkeypatch.setattr(dialog_module.im_file_dialog, "FileDialog", lambda: native)
-    backend = Backend()
-    device = Device()
+    monkeypatch.setattr(dialog_module.im_file_dialog, "FileDialog", SimpleNamespace(instance=lambda: native))
     cleanups = []
     context = object()
     monkeypatch.setattr(dialog_module.imgui, "get_current_context", lambda: context)
     posts = []
-    gui = SimpleNamespace(renderer=SimpleNamespace(device=device),
-                          gui_renderer=SimpleNamespace(backend=backend, imgui_context=context),
-                          add_cleanup=cleanups.append, _frame_active=True,
+    gui = SimpleNamespace(imgui_context=context, add_cleanup=cleanups.append, _frame_active=True,
                           _require_open=lambda: None, _assert_ui_thread=lambda: None,
                           post=posts.append, posts=posts)
-    return FileDialog(gui), native, device, backend, cleanups
+    dialog = FileDialog(gui)
+    yield dialog, native, cleanups
+    native.submitted = True
+    gui._frame_active = False
+    for cleanup in cleanups:
+        cleanup()
 
 
 def test_completion_cancellation_and_overlap(widget, tmp_path):
-    dialog, native, _, _, _ = widget
+    dialog, native, _ = widget
     dialog.open("Open", "Images .png", "/tmp", multiselect=True)
     assert dialog.draw() is None
     with pytest.raises(RuntimeError, match="already active"):
@@ -111,9 +78,14 @@ def test_completion_cancellation_and_overlap(widget, tmp_path):
     assert dialog.draw() == DialogResult((Path("/tmp/a.png"), Path("/tmp/b.png")))
     assert not dialog.active
     assert dialog.draw() is None
+    assert native.close_count == 0
+    with pytest.raises(RuntimeError, match="already active"):
+        dialog.select_folder("Folder")
+    submit_frame(dialog, native)
     dialog.select_folder("Folder", "/tmp")
     native.results = []
     assert dialog.draw() == DialogResult(())
+    submit_frame(dialog, native)
     dialog.save("Save", "PNG .png")
     native.results = [str(tmp_path / "out.png")]
     assert dialog.draw() == DialogResult((tmp_path / "out.png",))
@@ -121,7 +93,8 @@ def test_completion_cancellation_and_overlap(widget, tmp_path):
 
 @pytest.mark.parametrize("choice", ["Replace", "Cancel", "Escape"])
 def test_existing_save_waits_for_confirmation(widget, tmp_path, monkeypatch, choice):
-    dialog, native, _, _, _ = widget
+    dialog, native, _ = widget
+    second = FileDialog(dialog._gui)
     target = tmp_path / "existing.png"
     target.write_bytes(b"original")
     monkeypatch.setattr(dialog_module.imgui, "open_popup", lambda title: None)
@@ -144,17 +117,21 @@ def test_existing_save_waits_for_confirmation(widget, tmp_path, monkeypatch, cho
     assert dialog.active
     with pytest.raises(RuntimeError, match="already active"):
         dialog.open("Open")
+    with pytest.raises(RuntimeError, match="already active"):
+        second.open("Other")
     pressed.add(choice)
     expected = (target,) if choice == "Replace" else ()
     assert dialog.draw() == DialogResult(expected)
     assert not dialog.active
     assert dialog.draw() is None
+    submit_frame(dialog, native)
+    second.open("Other")
 
 
-@pytest.mark.parametrize("failure", ["start", "result", "close"])
+@pytest.mark.parametrize("failure", ["start", "poll", "result"])
 def test_request_recovers_after_native_failure(widget, monkeypatch, failure):
-    dialog, native, _, _, _ = widget
-    original_open, original_result, original_close = native.open, native.get_result, native.close
+    dialog, native, _ = widget
+    original_open, original_result = native.open, native.get_result
 
     def fail(*args):
         raise ValueError("native failure")
@@ -167,75 +144,84 @@ def test_request_recovers_after_native_failure(widget, monkeypatch, failure):
         dialog.open("Open")
         native.done = True
         native.results = ["/tmp/result"]
-        monkeypatch.setattr(native, "get_result" if failure == "result" else "close", fail)
+        method = {"poll": "is_done", "result": "get_result"}[failure]
+        monkeypatch.setattr(native, method, fail)
         with pytest.raises(ValueError, match="native failure"):
             dialog.draw()
     assert not dialog.active
     monkeypatch.setattr(native, "open", original_open)
     monkeypatch.setattr(native, "get_result", original_result)
-    monkeypatch.setattr(native, "close", original_close)
+    submit_frame(dialog, native)
+    monkeypatch.setattr(native, "is_done", lambda key: native.done)
     native.done = False
     dialog.open("Again")
     assert dialog.active
 
+def test_deferred_close_failure_releases_owner(widget, monkeypatch):
+    first, native, _ = widget
+    second = FileDialog(first._gui)
+    first.open("First")
+    native.done = True
+    assert first.draw() == DialogResult(())
 
-def test_texture_formats_upload_delete_and_cleanup(widget):
-    dialog, native, device, backend, cleanups = widget
-    create, delete = native.callbacks
-    bgra = create(b"12345678", 2, 1, 0)
-    create(b"abcdefgh", 1, 2, 1)
-    assert device.textures[0][1]["format"] == wgpu.TextureFormat.bgra8unorm
-    assert device.textures[1][1]["format"] == wgpu.TextureFormat.rgba8unorm
-    delete(0)
-    delete(bgra)
-    assert not device.textures[0][0].destroyed
-    assert not backend.unregistered
-    assert len(dialog._gui.posts) == 1
-    dialog._gui._frame_active = False
-    dialog._gui.posts.pop()()
-    assert device.textures[0][0].destroyed
-    assert len(backend.unregistered) == 1
-    cleanups[0]()
-    assert device.textures[1][0].destroyed
-    assert len(backend.unregistered) == 2
-    assert native.callbacks is None
-    dialog.close()
-    assert len(backend.unregistered) == 2
+    def fail():
+        raise ValueError("native failure")
 
-
-def test_missing_binding_fails_clearly(monkeypatch):
-    monkeypatch.setattr(dialog_module.im_file_dialog, "FileDialog", object)
-    with pytest.raises(RuntimeError, match="patched imgui-bundle"):
-        FileDialog(SimpleNamespace(_require_open=lambda: None))
+    original_close = native.close
+    monkeypatch.setattr(native, "close", fail)
+    with pytest.raises(ValueError, match="native failure"):
+        submit_frame(first, native)
+    monkeypatch.setattr(native, "close", original_close)
+    first._gui._frame_active = True
+    second.open("Second")
 
 
 def test_wrong_context_rejected(widget, monkeypatch):
-    dialog, _, _, _, _ = widget
+    dialog, _, _ = widget
     monkeypatch.setattr(dialog_module.imgui, "get_current_context", lambda: object())
     with pytest.raises(RuntimeError, match="active ImGui frame"):
         dialog.open("Open")
 
-
-def test_cleanup_registration_failure_releases_callbacks(monkeypatch):
-    native = NativeDialog()
-    monkeypatch.setattr(dialog_module.im_file_dialog, "FileDialog", lambda: native)
-
-    def reject_cleanup(callback):
-        raise RuntimeError("GUI closed")
-
-    gui = SimpleNamespace(_require_open=lambda: None, add_cleanup=reject_cleanup)
-    with pytest.raises(RuntimeError, match="GUI closed"):
-        FileDialog(gui)
-    assert native.callbacks is None
-
-
-def test_shutdown_releases_deferred_textures(widget):
-    dialog, native, device, backend, cleanups = widget
-    tex_id = native.callbacks[0](b"1234", 1, 1, 1)
-    native.callbacks[1](tex_id)
-    dialog.close()
-    assert not device.textures[0][0].destroyed
-    dialog._gui._frame_active = False
+def test_singleton_ownership_and_cleanup(widget):
+    first, native, cleanups = widget
+    second = FileDialog(first._gui)
+    first.open("First")
+    with pytest.raises(RuntimeError, match="already active"):
+        second.open("Second")
+    second.close()
+    assert native.close_count == 0
+    assert first.active
     cleanups[0]()
-    assert device.textures[0][0].destroyed
-    assert len(backend.unregistered) == 1
+    assert native.close_count == 0
+    submit_frame(first, native)
+    assert native.close_count == 1
+    third = FileDialog(first._gui)
+    third.open("Third")
+    native.done = True
+    assert third.draw() == DialogResult(())
+    submit_frame(first, native)
+    fourth = FileDialog(first._gui)
+    fourth.open("Fourth")
+    assert fourth.active
+
+
+def test_modal_close_requires_correct_scope(widget, monkeypatch):
+    first, native, _ = widget
+    second = FileDialog(first._gui)
+    first.open("First")
+    assert first.draw() is None
+    monkeypatch.setattr(dialog_module.imgui, "begin_popup_modal", lambda title: (False, True))
+    with pytest.raises(RuntimeError, match="same ImGui window"):
+        first.close()
+    with pytest.raises(RuntimeError, match="already active"):
+        second.open("Second")
+    monkeypatch.setattr(dialog_module.imgui, "begin_popup_modal", lambda title: (True, True))
+    monkeypatch.setattr(dialog_module.imgui, "close_current_popup", lambda: None)
+    monkeypatch.setattr(dialog_module.imgui, "end_popup", lambda: None)
+    first.close()
+    assert native.close_count == 0
+    submit_frame(first, native)
+    assert native.close_count == 1
+    second.open("Second")
+
+

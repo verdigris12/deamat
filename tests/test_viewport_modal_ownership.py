@@ -23,7 +23,7 @@ def test_main_modal_remains_in_owner_and_accepts_input():
         if not gui._viewport_host.enabled:
             pytest.skip("requires detached viewport support")
         imgui.get_io().set_ini_filename("")
-        glfw.set_window_pos(gui.canvas._window, 50, 50)
+        glfw.set_window_pos(gui.window, 50, 50)
         state = {"first": True, "checked": False, "viewport": None, "point": None}
 
         def update(_state, _gui, _dt):
@@ -41,8 +41,6 @@ def test_main_modal_remains_in_owner_and_accepts_input():
                 imgui.end_popup()
 
         gui.update = update
-        gui.gui_renderer.set_gui(gui._draw_imgui)
-        gui.canvas.request_draw(gui._render_frame)
 
         def frame():
             glfw.poll_events()
@@ -112,8 +110,6 @@ def test_detached_modal_native_parent_chain():
                 imgui.end_popup()
 
         gui.update = update
-        gui.gui_renderer.set_gui(gui._draw_imgui)
-        gui.canvas.request_draw(gui._render_frame)
 
         def frames():
             for _ in range(8):
@@ -137,7 +133,7 @@ def test_detached_modal_native_parent_chain():
         assert state["child"] not in (main, state["parent"])
         assert f"0x{xid(state['parent']):x}" in parent_of(state["child"])
         child = _window(imgui.find_viewport_by_id(state["child"]))
-        glfw.focus_window(gui.canvas._window)
+        glfw.focus_window(gui.window)
         frames()
         assert glfw.get_window_attrib(child, glfw.FOCUSED)
         glfw.default_window_hints()

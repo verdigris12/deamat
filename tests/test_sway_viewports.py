@@ -29,8 +29,8 @@ def _worker(state_path):
     control = Path(state_path + ".drag")
     sequence = {"step": None, "viewport": None, "start": None, "samples": []}
     stopped = threading.Event()
-    original_new_frame = imgui.backends.glfw_new_frame
-    original_render = gui._viewport_host.render
+    original_new_frame = gui._viewport_host.pre_new_frame
+    original_render = gui._viewport_host.after_frame
 
     def presented_render():
         original_render()
@@ -48,7 +48,7 @@ def _worker(state_path):
         tmp.write_text(json.dumps(d))
         tmp.replace(state_path + ".presented")
 
-    gui._viewport_host.render = presented_render
+    gui._viewport_host.after_frame = presented_render
 
     def input_frame():
         original_new_frame()
@@ -69,7 +69,7 @@ def _worker(state_path):
             io.add_mouse_button_event(0, False)
         sequence["step"] += 1
 
-    imgui.backends.glfw_new_frame = input_frame
+    gui._viewport_host.pre_new_frame = input_frame
 
     def wake_for_control():
         while not stopped.wait(.05):
@@ -112,7 +112,7 @@ def _worker(state_path):
                 "viewport_pos": [vp.pos.x, vp.pos.y], "viewport_size": [vp.size.x, vp.size.y],
                 "native_pos": list(glfw.get_window_pos(win)) if win else None,
                 "native_size": list(glfw.get_window_size(win)) if win else None,
-                "main_size": list(glfw.get_window_size(gui.canvas._window)),
+                "main_size": list(glfw.get_window_size(gui.window)),
                 "errors": [str(e) for e in gui.errors]}
         step = sequence["step"]
         if step is not None:
@@ -142,7 +142,7 @@ def _worker(state_path):
         gui.run()
     finally:
         stopped.set()
-        imgui.backends.glfw_new_frame = original_new_frame
+        gui._viewport_host.pre_new_frame = original_new_frame
 
 
 def _wait(predicate, description, timeout=15):
@@ -295,7 +295,6 @@ exec sh -c 'printf \"DISPLAY=%s\\nWAYLAND_DISPLAY=%s\\nSWAYSOCK=%s\\n\" \"$DISPL
         before_fullscreen = d["native_size"]
         cmd(p["id"], "fullscreen enable")
         d = presented_fullscreen("fullscreen-pane", True, d["frame"])
-        fullscreen_size = d["native_size"]
         cmd(p["id"], "fullscreen disable")
         d = presented_fullscreen("restore-pane", False, d["frame"])
         assert d["native_size"] == pytest.approx(before_fullscreen, abs=2)

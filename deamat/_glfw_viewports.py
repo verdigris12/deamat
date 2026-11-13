@@ -1,14 +1,51 @@
-"""GLFW platform windows and WGPU surfaces for one ImGui context."""
+"""Native input and X11 policy for ImGui GLFW windows."""
 import ctypes
-import os
 import sys
 
 import glfw
-import wgpu
 from imgui_bundle import imgui
-from rendercanvas.glfw import KEY_MAP
-from wgpu.utils.glfw_present_info import get_glfw_present_info
-from wgpu.utils.imgui.imgui_backend import ImguiWgpuBackend
+KEY_MAP = {
+    glfw.KEY_DOWN: "ArrowDown",
+    glfw.KEY_UP: "ArrowUp",
+    glfw.KEY_LEFT: "ArrowLeft",
+    glfw.KEY_RIGHT: "ArrowRight",
+    glfw.KEY_BACKSPACE: "Backspace",
+    glfw.KEY_CAPS_LOCK: "CapsLock",
+    glfw.KEY_DELETE: "Delete",
+    glfw.KEY_END: "End",
+    glfw.KEY_ENTER: "Enter",  # aka return
+    glfw.KEY_ESCAPE: "Escape",
+    glfw.KEY_F1: "F1",
+    glfw.KEY_F2: "F2",
+    glfw.KEY_F3: "F3",
+    glfw.KEY_F4: "F4",
+    glfw.KEY_F5: "F5",
+    glfw.KEY_F6: "F6",
+    glfw.KEY_F7: "F7",
+    glfw.KEY_F8: "F8",
+    glfw.KEY_F9: "F9",
+    glfw.KEY_F10: "F10",
+    glfw.KEY_F11: "F11",
+    glfw.KEY_F12: "F12",
+    glfw.KEY_HOME: "Home",
+    glfw.KEY_INSERT: "Insert",
+    glfw.KEY_LEFT_ALT: "Alt",
+    glfw.KEY_LEFT_CONTROL: "Control",
+    glfw.KEY_LEFT_SHIFT: "Shift",
+    glfw.KEY_LEFT_SUPER: "Meta",  # in glfw super means Windows or MacOS-command
+    glfw.KEY_NUM_LOCK: "NumLock",
+    glfw.KEY_PAGE_DOWN: "PageDown",
+    glfw.KEY_PAGE_UP: "PageUp",
+    glfw.KEY_PAUSE: "Pause",
+    glfw.KEY_PRINT_SCREEN: "PrintScreen",
+    glfw.KEY_RIGHT_ALT: "Alt",
+    glfw.KEY_RIGHT_CONTROL: "Control",
+    glfw.KEY_RIGHT_SHIFT: "Shift",
+    glfw.KEY_RIGHT_SUPER: "Meta",
+    glfw.KEY_SCROLL_LOCK: "ScrollLock",
+    glfw.KEY_TAB: "Tab",
+}
+
 
 
 _capsule_pointer = ctypes.pythonapi.PyCapsule_GetPointer
@@ -105,44 +142,15 @@ def _sync_viewport_geometry(viewport, window, geometry):
 
 
 
-class NativeImguiRenderer:
-    """One ImGui context and shared WGPU backend, without canvas input hooks."""
-
-    def __init__(self, device, canvas):
-        self._canvas_context = canvas.get_wgpu_context()
-        config = self._canvas_context._config
-        if config is None:
-            target_format = self._canvas_context.get_preferred_format(device.adapter)
-            self._canvas_context.configure(device=device, format=target_format)
-        else:
-            target_format = config["format"]
-        self.imgui_context = imgui.create_context()
-        imgui.set_current_context(self.imgui_context)
-        self.backend = ImguiWgpuBackend(device, target_format)
-        self._update_gui_function = None
-
-    def set_gui(self, callback):
-        self._update_gui_function = callback
-
-
 class GlfwViewportHost:
     def __init__(self, gui, enabled):
         self.gui = gui
-        self.renderer = gui.gui_renderer
-        self.main = gui.canvas._window
-        self.surfaces = {}
+        self.main = gui.window
         self.callbacks = {}
         self.geometry = {}
         self._drag_request = None
         self.focus_pending = False
         self._close_frame_pending = False
-        # The bundled platform backend and Python GLFW must share one library.
-        import imgui_bundle
-        bundled = os.path.join(os.path.dirname(imgui_bundle.__file__), "libglfw.so.3")
-        if os.path.exists(bundled) and not os.path.samefile(glfw._glfw._name, bundled):
-            raise RuntimeError("Python GLFW and imgui-bundle use different GLFW libraries; import imgui_bundle before glfw")
-        if not imgui.backends.glfw_init_for_other(_address(self.main), True):
-            raise RuntimeError("ImGui GLFW backend initialization failed")
         wayland = (hasattr(glfw, "get_platform") and
                    glfw.get_platform() == getattr(glfw, "PLATFORM_WAYLAND", -1))
         self.enabled = bool(enabled and not wayland and (imgui.get_io().backend_flags & imgui.BackendFlags_.platform_has_viewports))
@@ -156,8 +164,9 @@ class GlfwViewportHost:
             # Let the window manager decorate ordinary detached windows; ImGui
             # still marks popups and tooltips as undecorated.
             imgui.get_io().config_viewports_no_decoration = False
-            imgui.get_io().backend_flags |= imgui.BackendFlags_.renderer_has_viewports
             imgui.get_io().config_flags |= imgui.ConfigFlags_.viewports_enable
+        else:
+            imgui.get_io().config_flags &= ~imgui.ConfigFlags_.viewports_enable
         self._install(self.main)
 
     def _install(self, window):
@@ -185,7 +194,7 @@ class GlfwViewportHost:
             previous = [None]
             def dispatch(*args, previous=previous, handler=handler, name=name):
                 previous_context = imgui.get_current_context()
-                imgui.set_current_context(self.renderer.imgui_context)
+                imgui.set_current_context(self.gui.imgui_context)
                 was_active = self.gui._frame_active
                 self.gui._frame_active = True
                 try:
@@ -199,11 +208,8 @@ class GlfwViewportHost:
                     self.gui._record_error(error)
                 finally:
                     self.gui._frame_active = was_active
-                    if previous_context != self.renderer.imgui_context:
+                    if previous_context != self.gui.imgui_context:
                         imgui.set_current_context(previous_context)
-                    if self.gui._closed and not was_active:
-                        from rendercanvas.auto import loop
-                        loop.call_soon(self.gui._shutdown)
             callback = ctype(dispatch)
             previous[0] = setter(window, callback)
             callbacks.append((setter, callback, previous[0]))
@@ -227,8 +233,7 @@ class GlfwViewportHost:
 
     def _close_window(self, window):
         if _address(window) == _address(self.main):
-            # rendercanvas otherwise destroys the GLFW window at the end of
-            # polling, before our backend and child windows can be shut down.
+            # Keep the main window alive until backend cleanup completes.
             glfw.set_window_should_close(window, False)
             self.gui.close()
         else:
@@ -278,17 +283,7 @@ class GlfwViewportHost:
         pixels, _ = glfw.get_framebuffer_size(window)
         return pixels / width if width else self.gui.canvas.get_pixel_ratio()
 
-    def _retire_surfaces(self, addresses):
-        for address in addresses:
-            surface = self.surfaces.pop(address, None)
-            if surface is not None:
-                surface.unconfigure()
-                # wgpu-py unconfigure drops the swapchain but not the raw
-                # surface. Release it while its native window is still alive.
-                surface._release()
-
     def _retire_windows(self, addresses):
-        self._retire_surfaces(addresses)
         for address in addresses:
             self.callbacks.pop(address, None)
             self.geometry.pop(address, None)
@@ -323,59 +318,7 @@ class GlfwViewportHost:
         viewport.update_work_rect()
         viewport.last_platform_pos = native_pos
 
-    def _update_platform_windows(self):
-        # Render initialized DrawDataP.owner_viewport for every internal
-        # viewport, including viewports omitted from the public render list.
-        snapshot = []
-        imminent = set()
-        context = imgui.get_current_context()
-        for internal in context.viewports:
-            viewport = internal.draw_data_p.owner_viewport
-            window = _window(viewport) if viewport else None
-            if window:
-                address = _address(window)
-                snapshot.append((viewport, address))
-                owner = internal.window
-                # Match ImGui 1.92's UpdatePlatformWindows destruction test.
-                if address != _address(self.main) and (
-                    internal.last_frame_active < context.frame_count - 1
-                    or (owner is not None and (not owner.active or owner.hidden))
-                ):
-                    imminent.add(address)
-
-        # NewFrame may already have destroyed a viewport. Retire its resources
-        # before UpdatePlatformWindows can allocate another GLFW window there.
-        live = {address for _, address in snapshot}
-        live.add(_address(self.main))
-        self._retire_windows((self.surfaces.keys() | self.callbacks.keys() | self.geometry.keys()) - live)
-        # Renderer destruction must precede platform destruction; keep the
-        # ctypes callbacks until after GLFW has actually destroyed the window.
-        self._retire_surfaces(imminent)
-
-        # Keep ctypes callbacks alive through native destruction. Viewport
-        # objects themselves remain valid until a subsequent NewFrame.
-        imgui.update_platform_windows()
-        retired = set()
-        for viewport, address in snapshot:
-            window = _window(viewport)
-            if not window or _address(window) != address:
-                retired.add(address)
-        retired.discard(_address(self.main))
-        self._retire_windows(retired)
-
-
-    def render(self):
-        imgui.set_current_context(self.renderer.imgui_context)
-        # The native resize can precede rendercanvas' queued framebuffer event,
-        # especially at startup. Synchronize its size bookkeeping and WGPU
-        # surface before ImGui lays out against GLFW's current dimensions.
-        canvas = self.gui.canvas
-        context = self.renderer._canvas_context
-        framebuffer_size = glfw.get_framebuffer_size(self.main)
-        if framebuffer_size != canvas.get_physical_size():
-            canvas._determine_size()
-            context._rc_set_size_dict(canvas._size_info)
-        imgui.backends.glfw_new_frame()
+    def pre_new_frame(self):
         if self.enabled:
             # Preserve viewports only after an ordinary window has actually
             # detached. Global no-auto-merge also detaches modal popups.
@@ -404,92 +347,38 @@ class GlfwViewportHost:
                 target = _window(viewport) if viewport else None
                 if target and _address(target) != _address(focused):
                     glfw.focus_window(target)
-        imgui.new_frame()
+    def post_new_frame(self):
         if self.enabled:
             self._reconcile_drag_position()
-        # Dear ImGui may trickle a burst of input over several frames. The
-        # rendercanvas scheduler clears its draw flag before invoking us, so
-        # request another frame only while unprocessed events remain.
         if not imgui.get_current_context().input_events_queue.empty():
             self.gui.request_draw()
-        try:
-            self.renderer._update_gui_function()
-        finally:
-            imgui.render()
+
+    def after_frame(self):
         if self._close_frame_pending:
-            # The pane observes its close in this frame; ImGui retires its
-            # platform viewport after the pane is omitted in the next one.
             self._close_frame_pending = False
-            self.gui.request_draw()
-        if self.enabled:
-            self._update_platform_windows()
-        draw_data = imgui.get_draw_data()
-        texture = context.get_current_texture()
-        expected = (round(draw_data.display_size.x * draw_data.framebuffer_scale.x),
-                    round(draw_data.display_size.y * draw_data.framebuffer_scale.y))
-        if expected == (texture.width, texture.height):
-            self._draw(draw_data, texture.create_view())
-        else:
-            # A resize raced this layout. Rebuild it for the next attachment
-            # instead of issuing scissor rectangles outside the texture.
             self.gui.request_draw()
         if not self.enabled:
             return
-        for viewport in imgui.get_platform_io().viewports:
-            window = _window(viewport)
+        live = {_address(self.main)}
+        for internal in imgui.get_current_context().viewports:
+            viewport = internal.draw_data_p.owner_viewport
+            window = _window(viewport) if viewport else None
             if not window or _address(window) == _address(self.main):
                 continue
             address = _address(window)
-            self._install(window)
+            live.add(address)
+            if address not in self.callbacks:
+                self._install(window)
+                self.gui.request_draw()
             if self._x11_policy:
                 parent = imgui.find_viewport_by_id(viewport.parent_viewport_id)
                 self._x11_policy.set_parent(window, _window(parent) if parent else None)
-            size = glfw.get_framebuffer_size(window)
-            if size[0] <= 0 or size[1] <= 0:
-                continue
-            surface = self.surfaces.get(address)
-            if surface is None:
-                surface = wgpu.gpu.get_canvas_context(get_glfw_present_info(window))
-                surface.configure(device=self.renderer.backend._device, format=self.renderer.backend._target_format)
-                self.surfaces[address] = surface
-                # Creation and window-manager placement can happen after this
-                # frame's layout, before our callbacks have been installed.
-                self.gui.request_draw()
-            surface.set_physical_size(*size)
-            logical_size = glfw.get_window_size(window)
-            draw_data = viewport.draw_data
-            if not draw_data or logical_size[0] <= 0 or logical_size[1] <= 0:
-                continue
-            if (draw_data.display_size.x, draw_data.display_size.y) != logical_size:
-                # The WM changed the client size after layout. Drawing it now
-                # either stretches the old layout or exceeds the attachment.
-                self.gui.request_draw()
-                continue
-            draw_data.framebuffer_scale = (
-                size[0] / logical_size[0],
-                size[1] / logical_size[1],
-            )
-            self._draw(viewport.draw_data, surface.get_current_texture().create_view())
-            surface.present()
-
-    def _draw(self, draw_data, view):
-        device = self.renderer.backend._device
-        encoder = device.create_command_encoder()
-        render_pass = encoder.begin_render_pass(color_attachments=[{"view": view, "resolve_target": None, "clear_value": (0, 0, 0, 1), "load_op": wgpu.LoadOp.clear, "store_op": wgpu.StoreOp.store}])
-        self.renderer.backend.render(draw_data, render_pass)
-        render_pass.end()
-        # Submit before the next viewport writes the backend's shared buffers.
-        device.queue.submit([encoder.finish()])
+        self._retire_windows((self.callbacks.keys() | self.geometry.keys()) - live)
 
     def close(self):
-        self._retire_surfaces(tuple(self.surfaces))
         # Restore only the live main window; platform destruction owns secondary windows.
         window, callbacks = self.callbacks.pop(_address(self.main))
         for setter, callback, previous in callbacks:
             setter(window, previous)
-        if self.enabled:
-            imgui.destroy_platform_windows()
-        self.callbacks.clear()
         self.geometry.clear()
         self._drag_request = None
-        imgui.backends.glfw_shutdown()

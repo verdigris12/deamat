@@ -16,12 +16,10 @@ authors = [
 ]
 dependencies = [
     "glfw>=2.9,<3",
-    "imgui-bundle==1.92.0",
+    "imgui-bundle==1.93.0",
     "matplotlib>=3.10,<3.11",
     "numpy>=2,<3",
-    "pygfx>=0.15.3,<0.16",
-    "rendercanvas>=2.5.2,<2.6",
-    "wgpu>=0.29,<0.30",
+    "PyOpenGL>=3.1.9,<4",
 ]
 classifiers = [
     "Development Status :: 3 - Alpha",
@@ -31,6 +29,13 @@ classifiers = [
     "Programming Language :: Python :: 3 :: Only",
     "Programming Language :: Python :: 3.11",
     "Topic :: Multimedia :: Graphics"
+]
+
+[project.optional-dependencies]
+pygfx = [
+    "pygfx>=0.15.3,<0.16",
+    "rendercanvas>=2.5.2,<2.6",
+    "wgpu>=0.29,<0.30",
 ]
 
 [project.urls]

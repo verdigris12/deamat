@@ -1,7 +1,6 @@
 import asyncio
 from concurrent.futures import Future, ProcessPoolExecutor
 from concurrent.futures.process import BrokenProcessPool
-from queue import Empty, SimpleQueue
 import threading
 import multiprocessing as mp
 import os
@@ -18,47 +17,52 @@ from deamat.gui import GUI
 from deamat.guistate import GUIState
 
 
-class Canvas:
-    def __init__(self, **options):
-        self.options = options
-        self.handlers = {}
-        self.draw_requests = []
-        self.close_count = 0
-
-    def add_event_handler(self, callback, *events):
-        for event in events:
-            self.handlers[event] = callback
-
-    def request_draw(self, callback=None):
-        self.draw_requests.append((threading.get_ident(), callback))
+class NativeSurface:
+    def __init__(self, gui):
+        self.gui = gui
 
     def get_logical_size(self):
         return (640, 480)
 
+
+class NativeHost:
+    def __init__(self, gui, enabled):
+        self.gui = gui
+        self.enabled = enabled
+
+    def pre_new_frame(self):
+        pass
+
+    def post_new_frame(self):
+        pass
+
+    def after_frame(self):
+        pass
+
     def close(self):
-        self.close_count += 1
+        pass
+
+    def pixel_ratio(self):
+        return 1.0
 
 
-class Loop:
+class Runner:
     def __init__(self):
-        self.pending = SimpleQueue()
+        self.params = None
+        self.teardowns = 0
         self.wakeup_threads = []
 
-    def call_soon(self, callback, *args):
-        self.pending.put((callback, args))
+    def setup(self, params):
+        self.params = params
 
-    def call_soon_threadsafe(self, callback, *args):
+    def render(self):
+        self.params.callbacks.show_gui()
+
+    def teardown(self):
+        self.teardowns += 1
+
+    def wake(self):
         self.wakeup_threads.append(threading.get_ident())
-        self.pending.put((callback, args))
-
-    def run(self):
-        while True:
-            try:
-                callback, args = self.pending.get_nowait()
-            except Empty:
-                return
-            callback(*args)
-
 
 class Executor:
     def __init__(self, **options):
@@ -77,19 +81,19 @@ class Executor:
 
 @pytest.fixture
 def gui_factory(monkeypatch):
-    render_loop = Loop()
-    monkeypatch.setattr(gui_module, "loop", render_loop)
-    monkeypatch.setattr(gui_module, "RenderCanvas", Canvas)
-    monkeypatch.setattr(gui_module, "_configure_pygfx_features", lambda: None)
-    monkeypatch.setattr(gui_module.gfx, "WgpuRenderer", lambda canvas: SimpleNamespace(device=None))
-    monkeypatch.setattr(gui_module.gfx, "Clock", lambda: SimpleNamespace(get_delta=lambda: 0.1))
-    monkeypatch.setattr(gui_module, "ImguiRenderer", lambda *args: SimpleNamespace(
-        set_gui=lambda callback: None, render=lambda: None, imgui_context=object()
-    ))
+    render_loop = Runner()
+    monkeypatch.setattr(gui_module.immapp.manual_render, "setup_from_runner_params", render_loop.setup)
+    monkeypatch.setattr(gui_module.immapp.manual_render, "render", render_loop.render)
+    monkeypatch.setattr(gui_module.immapp.manual_render, "tear_down", render_loop.teardown)
+    monkeypatch.setattr(gui_module, "NativeWindow", NativeSurface)
+    monkeypatch.setattr(gui_module, "GlfwViewportHost", NativeHost)
+    monkeypatch.setattr(gui_module, "_window", lambda viewport: object())
+    monkeypatch.setattr(gui_module.imgui, "get_main_viewport", lambda: object())
     monkeypatch.setattr(gui_module.imgui, "get_io", lambda: SimpleNamespace(config_flags=0))
     monkeypatch.setattr(gui_module.imgui, "get_current_context", lambda: None)
     monkeypatch.setattr(gui_module.imgui, "set_current_context", lambda context: None)
-    monkeypatch.setattr(gui_module.imgui, "destroy_context", lambda context: None)
+    monkeypatch.setattr(gui_module.glfw, "make_context_current", lambda window: None)
+    monkeypatch.setattr(gui_module.glfw, "post_empty_event", render_loop.wake)
     monkeypatch.setattr(gui_module, "ProcessPoolExecutor", Executor)
     instances = []
 
@@ -121,17 +125,17 @@ def on_worker(callback):
         raise failures[0]
     return results[0]
 
-def test_global_input_handlers_and_fallback_canvas(gui_factory):
+def test_global_input_handlers(gui_factory):
     create, _ = gui_factory
     gui = create(viewports=False)
     events = []
     gui.add_input_handler(events.append, "pointer_up", "key_up")
     gui.add_input_handler(events.append, "pointer_up")
     event = {"event_type": "pointer_up", "button": 1, "x": 2, "y": 3}
-    gui._on_canvas_input(event)
+    gui._emit_input(event)
     assert events == [event]
     gui.remove_input_handler(events.append, "pointer_up", "key_up")
-    gui._on_canvas_input(event)
+    gui._emit_input(event)
     assert events == [event]
     gui.close()
     gui.remove_input_handler(events.append, "pointer_up")
@@ -163,8 +167,9 @@ def test_post_preserves_state_and_runs_on_main_thread(gui_factory):
     second = on_worker(lambda: gui.post(append, 2))
     assert not first.done()
     assert state.values == []
-    assert render_loop.wakeup_threads == []  # No running rendercanvas loop yet.
-    gui._start_dispatch()
+    assert render_loop.wakeup_threads == []  # The native loop has not started.
+    gui._dispatch_ready = True
+    gui._drain_posts()
     assert first.result() == (main_thread, state.lock)
     assert second.result() == (main_thread, state.lock)
     assert state.values == [1, 2]
@@ -200,17 +205,16 @@ def test_post_errors_cancellation_and_close_are_terminal(gui_factory):
 def test_worker_wakeup_is_marshaled_to_render_loop(gui_factory):
     create, render_loop = gui_factory
     gui = create(update_mode="ondemand")
-    gui._start_dispatch()
-    count = len(gui.canvas.draw_requests)
+    gui._dispatch_ready = True
+    gui._drain_posts()
+    gui._draw_requested = False
     future = on_worker(lambda: gui.post(threading.get_ident))
     on_worker(gui.request_draw)
-    assert len(gui.canvas.draw_requests) == count
-    assert render_loop.wakeup_threads
+    assert gui._draw_requested
+    assert len(render_loop.wakeup_threads) == 2
     assert not future.done()
-    render_loop.run()
+    gui._drain_posts()
     assert future.result() == threading.get_ident()
-    assert len(gui.canvas.draw_requests) > count
-    assert all(thread == threading.get_ident() for thread, _ in gui.canvas.draw_requests)
 
 
 def test_submit_from_update_and_job_completion_stay_on_gui_thread(gui_factory, monkeypatch):
@@ -276,7 +280,7 @@ def test_cancelled_job_updates_status_without_callback(gui_factory):
 
 
 def test_close_is_idempotent_and_does_not_deliver_late_results(gui_factory):
-    create, _ = gui_factory
+    create, render_loop = gui_factory
     gui = create()
     cleanups = []
     gui.add_cleanup(lambda: cleanups.append(("first", threading.get_ident())))
@@ -292,7 +296,7 @@ def test_close_is_idempotent_and_does_not_deliver_late_results(gui_factory):
     assert results == []
     assert gui.job_counter == 0
     assert cleanups == [("second", threading.get_ident()), ("first", threading.get_ident())]
-    assert gui.canvas.close_count == 1
+    assert render_loop.teardowns == 1
     assert gui.executor.shutdown_calls == [{"wait": True, "cancel_futures": True}]
     assert gui.asyncio_loop.is_closed()
     with pytest.raises(RuntimeError, match="closed"):
@@ -300,7 +304,7 @@ def test_close_is_idempotent_and_does_not_deliver_late_results(gui_factory):
 
 
 def test_cleanup_failure_does_not_skip_other_disposal(gui_factory):
-    create, _ = gui_factory
+    create, render_loop = gui_factory
     gui = create()
     disposed = []
     gui.add_cleanup(lambda: disposed.append(True))
@@ -312,7 +316,7 @@ def test_cleanup_failure_does_not_skip_other_disposal(gui_factory):
     gui.close()
     assert disposed == [True]
     assert str(gui.errors[-1]) == "cleanup failed"
-    assert gui.canvas.close_count == 1
+    assert render_loop.teardowns == 1
 
 
 def test_async_coroutine_can_await_gui_callback_and_expose_errors(gui_factory):
@@ -374,14 +378,11 @@ def test_close_cancels_coroutine_waiting_on_ui_post(gui_factory):
 def test_run_options_spawn_policy_and_window_close(gui_factory):
     create, render_loop = gui_factory
     gui = create(title="A figure", max_fps=24, update_mode="ondemand", max_workers=2)
-    assert gui.canvas.options == {
-        "size": (1280, 720), "title": "A figure", "update_mode": "ondemand", "max_fps": 24
-    }
     assert gui.executor.options["max_workers"] == 2
     assert gui.executor.options["mp_context"].get_start_method() == "spawn"
-    render_loop.call_soon(gui.canvas.handlers["close"], {"event_type": "close"})
+    gui.post(gui.close)
     gui.run()
-    assert gui.canvas.close_count == 1
+    assert render_loop.teardowns == 1
     with pytest.raises(RuntimeError, match="closed"):
         gui.run()
 
@@ -447,7 +448,7 @@ def _wait_for_file(path, timeout=30):
 
 
 @pytest.mark.skipif(sys.platform != "linux", reason="Linux signals and process state")
-@pytest.mark.parametrize("close_path", ["close", "canvas", "run"])
+@pytest.mark.parametrize("close_path", ["close", "run"])
 def test_close_terminates_owned_workers_before_cleanup(
     gui_factory, monkeypatch, tmp_path, close_path
 ):
@@ -466,9 +467,8 @@ def test_close_terminates_owned_workers_before_cleanup(
     start = time.monotonic()
     if close_path == "close":
         gui.close()
-    elif close_path == "canvas":
-        gui.canvas.handlers["close"]({"event_type": "close"})
     else:
+        gui.post(gui.close)
         gui.run()
     assert time.monotonic() - start < 10
     gui.close()
@@ -562,7 +562,7 @@ def test_replacing_figure_releases_previous_registration(monkeypatch):
 
 
 def test_noncooperative_coroutine_shutdown_is_bounded_and_reported(gui_factory):
-    create, _ = gui_factory
+    create, render_loop = gui_factory
     gui = create()
     gui.asyncio_loop.close()
     stop_calls = []
@@ -579,79 +579,29 @@ def test_noncooperative_coroutine_shutdown_is_bounded_and_reported(gui_factory):
     assert join_calls == [1.0]
     assert len(stop_calls) == 1
     assert "must cooperate with cancellation" in str(gui.errors[-1])
-    assert gui.canvas.close_count == 1
-
-
-def test_initialization_failure_closes_resources_without_retry(gui_factory):
-    create, _ = gui_factory
-    state = GUIState()
-    calls = []
-
-    def gl_init(canvas, renderer):
-        calls.append((canvas, renderer))
-        raise TypeError("failure inside initialization")
-
-    state.gl_init = gl_init
-    gui = create(state)
-    with pytest.raises(TypeError, match="failure inside initialization"):
-        gui.run()
-    assert len(calls) == 1
-    assert gui.canvas.close_count == 1
-    assert gui.asyncio_loop.is_closed()
+    assert render_loop.teardowns == 1
 
 
 def test_close_from_update_waits_for_backend_render_completion(gui_factory, monkeypatch):
-    create, _ = gui_factory
+    create, runner = gui_factory
     gui = create()
     events = []
-    context = gui.gui_renderer.imgui_context
     monkeypatch.setattr(gui, "_create_main_window", lambda: events.append("begin"))
     monkeypatch.setattr(gui_module.imgui, "end", lambda: events.append("end"))
-    monkeypatch.setattr(
-        gui_module.imgui, "destroy_context",
-        lambda disposed: events.append(("destroy_context", disposed)),
-    )
-    gui.add_cleanup(lambda: events.append("dispose_widget_texture"))
+    gui.add_cleanup(lambda: events.append("cleanup"))
 
     def update(state, owner, dt):
         owner.close()
-        assert owner.gui_renderer is not None
-        assert owner.canvas.close_count == 0
-        events.append("close_requested")
+        assert runner.teardowns == 0
+        events.append("close")
 
     def render():
         gui._draw_imgui()
-        assert gui.gui_renderer is not None
-        assert gui.canvas.close_count == 0
-        events.append("backend_render_complete")
+        assert runner.teardowns == 0
+        events.append("rendered")
 
     gui.update = update
-    gui.gui_renderer.render = render
+    monkeypatch.setattr(gui_module.immapp.manual_render, "render", render)
     gui._render_frame()
-    assert events == [
-        "begin", "close_requested", "end", "backend_render_complete",
-        "dispose_widget_texture", ("destroy_context", context),
-    ]
-    assert gui.gui_renderer is None
-    assert gui.renderer is None
-    assert gui.canvas.close_count == 1
-    gui.close()
-    assert gui.canvas.close_count == 1
-
-
-def test_closing_one_gui_restores_other_windows_context(gui_factory, monkeypatch):
-    create, _ = gui_factory
-    first = create()
-    second = create()
-    first_context = first.gui_renderer.imgui_context
-    second_context = second.gui_renderer.imgui_context
-    current = [second_context]
-    disposed = []
-    monkeypatch.setattr(gui_module.imgui, "get_current_context", lambda: current[0])
-    monkeypatch.setattr(gui_module.imgui, "set_current_context", lambda context: current.__setitem__(0, context))
-    monkeypatch.setattr(gui_module.imgui, "destroy_context", disposed.append)
-    first.add_cleanup(lambda: disposed.append(("widget_context", current[0])))
-    first.close()
-    assert disposed == [("widget_context", first_context), first_context]
-    assert current[0] is second_context
-    assert not second._closed
+    assert events == ["begin", "close", "end", "rendered", "cleanup"]
+    assert runner.teardowns == 1

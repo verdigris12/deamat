@@ -1,106 +1,145 @@
 # AGENTS.md
 
+## general
+
+* Use KISS
+* No defensive code, unless explicitly required.
+* Ask me before making judgement calls.
+* Do not implement backwards-compatibility unless explictly required.
+
+## Language
+
+Use ASD-STE100 Simplified Technical English in specifications and documentation.
+
+- Use short, direct sentences.
+- Use active voice.
+- Give one instruction in each sentence.
+- Use one term for one concept.
+- Give each term one meaning.
+- Use the terms in `CONTEXT.md` and the names in the public API.
+- Define a necessary new term before its first use.
+- Do not invent labels for implementation eras, architecture qualities, migrations, or revisions.
+- State the current requirements in specifications.
+- Keep implementation history in implementation records.
+- Put a representative example before reference material in a data-format specification.
+- Do not use the word `provenance`. Use `source`, `producer`, `derivation`, or `history`.
+- Do not use the word `contract`. Use `specification`, `requirements`, `API`, `behavior`, or `rules`.
+- Use `reader`, `writer`, `encoding`, `decoding`, or `serialization` for data conversion. Do not use `codec`.
+- Do not use `wire` as a noun for serialized data. Use `JSON representation`, `JSON document`, or the exact format name.
+
 ## Project Overview
 
-**Deamat** is a Python GUI scaffolding library (v0.2.0) for building interactive scientific visualization applications. It combines:
-
-- **imgui_bundle** with wgpu-based ImGui rendering
-- **wgpu/rendercanvas** for window management and GPU access
-- **pygfx** for 3D visualization (zerocopy texture sharing with imgui)
-- **matplotlib** for 2D plotting
+Deamat is a Python library for interactive scientific applications.
+It combines Dear ImGui, Matplotlib and pygfx.
+`pyproject.toml` defines the package version and dependency requirements.
+`README.md` contains installation instructions and public API examples.
 
 ## Architecture
 
-```
-deamat/
-├── __init__.py          # Package entry, re-exports core classes, widgets, and imgui
-├── __main__.py          # CLI entry point (deamat-demo)
-├── gui.py               # Main GUI class with wgpu/pygfx/ImGui integration
-├── guistate.py          # State container base class with figure registry
-├── mpl_view.py          # Standalone matplotlib figure viewer (CLI: mplview)
-├── sync.py              # Thread-safe state synchronization (SyncContext)
-└── widgets/
-    ├── __init__.py      # Widget exports (figure, pygfx_canvas)
-    ├── figure.py        # Matplotlib figure embedding
-    └── pygfx_canvas.py  # pygfx 3D canvas widget (zerocopy)
-```
+| Module | Purpose |
+|---|---|
+| `deamat/__init__.py` | Exports `GUI`, `GUIState`, `widgets` and `imgui`. |
+| `deamat/__main__.py` | Creates the example figure for `deamat-demo`. |
+| `deamat/gui.py` | Owns the window, render loop, background work and resource cleanup. |
+| `deamat/_glfw_viewports.py` | Integrates native GLFW input and detached OpenGL viewports. |
+| `deamat/guistate.py` | Stores application state and the figure registry. |
+| `deamat/mpl_canvas.py` | Handles Matplotlib input and figure textures. |
+| `deamat/mpl_properties.py` | Provides Matplotlib property controls. |
+| `deamat/mpl_view.py` | Provides `MPLView` and the `mplview` CLI. |
+| `deamat/widgets/figure.py` | Embeds a registered Matplotlib figure. |
+| `deamat/widgets/pygfx_canvas.py` | Embeds an optional offscreen pygfx renderer through OpenGL image upload. |
+| `deamat/widgets/file_dialog.py` | Provides `FileDialog` and `DialogResult`. |
 
-## CLI Tools
+## Application State and Background Work
 
-- `deamat-demo` - Placeholder entry point with usage instructions
-- `mplview <figure.pkl>` - Standalone viewer for pickled matplotlib figures
+- Construct and run `GUI` on the main thread.
+- Keep application state, Matplotlib objects, ImGui calls and GPU operations on that thread.
+- Assign the application update function to `gui.update`.
+- Use a `GUIState` subclass for application data.
+- Use `GUIState.add_figure()` to register a figure factory.
+- Use `invalidate_figure()` or `invalidate_all_figures()` to request figure updates.
+- Use `remove_figure()` to remove a figure and release its resources.
+- Use `gui.post(callback, *args)` to send state changes from background work to the GUI thread.
+- Do not copy or merge live GUI state between threads.
+- Use `gui.exec_coroutine()` for background coroutines.
+- Use `gui.submit_job()` for process jobs.
+- Define process-job functions at module scope.
+- Protect the application entry point with `if __name__ == "__main__":`.
 
-## Core Components
+`GUI` creates its process pool with the `spawn` method.
+Job result callbacks run on the GUI thread.
+`gui.add_cleanup()` registers resource cleanup.
+`gui.close()` stops background work and releases GUI resources.
+`gui.errors` stores background and callback failures.
 
-### GUI (`gui.py`)
-Central application manager:
-- Creates/manages `RenderCanvas` via wgpu/rendercanvas
-- Uses `gfx.WgpuRenderer` for pygfx rendering
-- Uses `ImguiRenderer` from `wgpu.utils.imgui` for imgui integration
-- Initializes Dear ImGui with docking support
-- Runs continuous render loop with delta time via `gfx.Clock`
-- Provides async support via background asyncio thread
-- Provides `ProcessPoolExecutor` for CPU-bound jobs
-- Manages figure caching and updates
-- Logs errors via module-level logger
+## Rendering and Native Windows
 
-Key methods: `run()`, `submit_job()`, `exec_coroutine()`
+`GUI(..., update_mode="continuous", max_fps=60)` selects continuous rendering.
+`GUI(..., update_mode="ondemand", max_fps=60)` selects on-demand rendering.
+`max_fps` limits the frame rate in both modes.
+Input and posted work request frames in on-demand mode.
+Call `gui.request_draw()` when external state needs a frame.
 
-### GUIState (`guistate.py`)
-Base class for application state:
-- Window dimension tracking
-- Figure registry (dict-based) with input validation
-- Matplotlib style configuration
-- Thread-safe sync queue
-
-Key methods: `add_figure()`, `invalidate_figure()`, `invalidate_all_figures()`, `sync()`, `set_plt_style()`
-
-### SyncContext (`sync.py`)
-Async context manager for thread-safe state mutation from background threads using deep-copy/merge pattern.
-
-### Widgets (`widgets/`)
-- `figure()`: Embeds matplotlib figures into ImGui windows
-- `pygfx_canvas()`: Renders pygfx Scene into ImGui via zerocopy texture sharing
-
-### MPLView (`mpl_view.py`)
-Standalone matplotlib figure viewer with interactive editing, styling controls, and export capabilities. Can be invoked via CLI (`mplview`) or programmatically.
-
-## Key Patterns
-
-1. **Immediate-Mode GUI**: UI rebuilt each frame in update callback
-2. **State Subclassing**: Users extend `GUIState` with application data
-3. **Figure Factory**: Figures created via `(state) -> Figure` functions
-4. **Invalidation Pattern**: Mark-dirty for efficient redraws
-5. **Callback Injection**: `gui.update` set to user function
-6. **Context Manager Threading**: `sync()` for thread safety
-7. **Registry Pattern**: Figures/canvases stored by name in dicts
+The GLFW integration uses the native ImGui platform backend.
+It supports detached viewports on X11.
+`GUI(..., viewports=False)` disables detached viewports.
+The public imgui-bundle runner initializes GLFW and OpenGL.
+All ImGui viewports share OpenGL textures.
+Matplotlib renders through Agg before it uploads a figure image.
+The optional pygfx widget reads changed WGPU images and uploads them to OpenGL.
+See the README for Sway window rules and movement limitations.
 
 ## Dependencies
 
-- imgui_bundle (>=1.5.2), imgui (>=2.0.0)
-- pygfx (>=0.6.0), wgpu (>=0.18.0), rendercanvas (>=1.0.0)
-- matplotlib (>=3.9.2)
-- numpy (>=2.0.1), pydantic (>=2.8.2)
-- Python >=3.11
+Use the dependency requirements in `pyproject.toml`.
+Use the public imgui-bundle wheel.
+Do not maintain or ship a patched dependency wheel.
+Install `deamat[pygfx]` to use the optional pygfx widget.
+Do not add a separate `imgui` package.
+Import ImGui from `deamat` or `imgui_bundle`.
+Import `deamat` or `imgui_bundle` before `glfw` so they use the same GLFW library.
+Use `gui.create_image(pixels)` for CPU RGBA images.
+Close the returned image when the application no longer needs it.
+Do not access the pygfx device to upload ordinary UI images.
+
+Import ImAnim with `from imgui_bundle import im_anim`.
+Call `im_anim.update_begin_frame()` once before tween calls in each update callback.
+Use stable ImGui IDs for animation channels.
+Pass the update callback's `dt` to tween functions.
+Call `gui.request_draw()` while an animation is active in on-demand mode.
+Deamat does not update ImAnim automatically.
+
+## CLI Tools
+
+- `deamat-demo` and `python -m deamat` open an editable example figure.
+- `mplview --trust-pickle <figure.pkl>` opens a trusted pickled Matplotlib figure.
+
+Pickle files can execute Python code.
+Never open an untrusted pickle file.
 
 ## Examples
 
-Located in `examples/`:
-1. `1-basic.py` - Basic window creation
-2. `2-ui_update.py` - UI widgets and state updates
-3. `3-matplotlib.py` - Matplotlib figure integration
-4. `4-async_update.py` - Async operations (see note about `sync()` for thread safety)
-5. `5-pygfx.py`, `6-pygfx_more.py` - pygfx 3D visualization
-6. `7-sync_context.py` - Thread-safe state synchronization
-7. `8-pygfx_2d.py` - pygfx 2D visualization (Lissajous figure with OrthographicCamera)
+The `examples/` directory contains:
 
-## Tests
+- `1-basic.py`: Window creation.
+- `2-ui_update.py`: Widgets and state updates.
+- `3-matplotlib.py`: Matplotlib figure embedding.
+- `4-async_update.py`: Background coroutines.
+- `5-pygfx.py` and `6-pygfx_more.py`: pygfx scenes.
+- `7-main-thread-dispatch.py`: State changes through `gui.post()`.
+- `8-pygfx_2d.py`: A 2D pygfx scene.
 
-`tests/test_gui.py` - Basic sanity checks for GUI initialization and state management.
+## Verification
 
-## Development Notes
+Use the Nix environment in `flake.nix` for development tools and native libraries.
+Run commands with `nix run . -- -c 'command'`.
+Run the test suite with `uv run --no-sync pytest -q`.
 
-- Uses Nix flake for development environment (see `flake.nix`)
-- Package managed via `pyproject.toml` with uv
-- ImGui is re-exported from `deamat` to ensure version consistency
-- Multiprocessing uses 'spawn' method (set at module load in `widgets/figure.py`)
+Tests cover GUI lifecycle, background work, Matplotlib input and properties, pygfx widgets, file dialogs and native viewports.
+Native-window tests require a Linux X11 display.
+Use an isolated X server such as Xvfb for tests that require absolute window placement or pointer movement.
+Sway/XWayland can reject client-requested window movement.
+Desktop output positions can invalidate fixed test coordinates.
+The Sway acceptance test starts an isolated compositor.
+Enable that test with `DEAMAT_SWAY_ACCEPTANCE=1`.
+See `tests/test_sway_viewports.py` for its tool requirements.

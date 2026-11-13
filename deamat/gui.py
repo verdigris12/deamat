@@ -10,13 +10,12 @@ import signal
 import sys
 import time
 
+# Import the bundle first so Python GLFW uses the bundled native library.
+from imgui_bundle import imgui, hello_imgui, immapp
 import glfw
-from rendercanvas.auto import RenderCanvas, loop
-from wgpu.utils.imgui import ImguiRenderer
-import wgpu
-import pygfx as gfx
-from pygfx.renderers.wgpu.engine.shared import Shared
-from imgui_bundle import imgui
+
+from ._native_window import NativeWindow
+from ._glfw_viewports import GlfwViewportHost, _window
 
 
 def _worker_initializer(parent_pid: int) -> None:
@@ -59,27 +58,8 @@ def _stop_executor(executor: ProcessPoolExecutor) -> None:
     executor.shutdown(wait=True, cancel_futures=True)
 
 
-def _configure_pygfx_features() -> None:
-    """Configure pygfx to only request GPU features that are actually available.
-    
-    This must be called before creating any WgpuRenderer, as pygfx creates
-    a global shared device on first use.
-    """
-    if Shared._instance is not None:
-        # Already initialized, nothing to do
-        return
-    
-    # Get available features from the adapter
-    adapter = wgpu.gpu.request_adapter_sync(power_preference="high-performance")
-    available = set(adapter.features)
-    
-    # Filter pygfx's required features to only those available
-    # pygfx defaults to requiring 'float32-filterable' which may not be supported
-    Shared._features = Shared._features & available
-
-
 class GUI:
-    """High-level GUI manager backed by wgpu and pygfx."""
+    """High-level GUI manager backed by GLFW and OpenGL."""
 
     logger = logging.getLogger(__name__)
 
@@ -100,6 +80,8 @@ class GUI:
         self._closed = False
         self._running = False
         self._frame_active = False
+        self._rendered = False
+        self._startup_frames_remaining = 4
         self._shutdown_complete = False
         self._dispatch_ready = False
         self._cleanups = []
@@ -108,38 +90,41 @@ class GUI:
         self._coroutines: set[Future] = set()
         self.update_mode = update_mode
         self.max_fps = max_fps
-        # Configure pygfx to only request available GPU features
-        _configure_pygfx_features()
-
-        # -- wgpu canvas --
-        self.canvas = RenderCanvas(
-            size=(width, height),
-            title=title,
-            update_mode=update_mode,
-            max_fps=max_fps,
-        )
-
-        # -- UI options --
+        if update_mode not in ("continuous", "ondemand"):
+            raise ValueError("update_mode must be continuous or ondemand")
+        if max_fps <= 0:
+            raise ValueError("max_fps must be positive")
         self._menubar = menubar
-
-        # -- pygfx renderer --
-        self.renderer = gfx.WgpuRenderer(self.canvas)
-
-        # GLFW uses its native input backend, not ImguiRenderer's canvas event
-        # bridge. Other canvas backends retain the existing renderer.
-        native_glfw = getattr(self.canvas, "_window", None) is not None
-        if native_glfw:
-            from ._glfw_viewports import GlfwViewportHost, NativeImguiRenderer
-            self.gui_renderer = NativeImguiRenderer(self.renderer.device, self.canvas)
-        else:
-            self.gui_renderer = ImguiRenderer(self.renderer.device, self.canvas)
-
+        self._input_handlers: dict[str, list[Callable]] = {}
+        self._images = set()
+        self._deferred_image_deletions = []
+        self._draw_requested = True
+        self._last_frame = time.perf_counter()
+        self._runner_params = hello_imgui.RunnerParams()
+        params = self._runner_params
+        params.platform_backend_type = hello_imgui.PlatformBackendType.glfw
+        params.renderer_backend_type = hello_imgui.RendererBackendType.open_gl3
+        params.app_window_params.window_title = title
+        params.app_window_params.window_geometry.size = (width, height)
+        params.imgui_window_params.default_imgui_window_type = hello_imgui.DefaultImGuiWindowType.no_default_window
+        params.imgui_window_params.enable_viewports = viewports
+        params.fps_idling.enable_idling = False
+        params.fps_idling.vsync_to_monitor = False
+        params.ini_disable = True
+        params.callbacks.show_gui = self._draw_imgui
+        params.callbacks.pre_new_frame = self._pre_new_frame
+        params.callbacks.post_new_frame = self._post_new_frame
+        if os.environ.get("DEAMAT_GLFW_EGL") == "1":
+            if not glfw.init():
+                raise RuntimeError("GLFW initialization failed")
+            glfw.window_hint(glfw.CONTEXT_CREATION_API, glfw.EGL_CONTEXT_API)
+        immapp.manual_render.setup_from_runner_params(params)
+        self.imgui_context = imgui.get_current_context()
+        self.window = _window(imgui.get_main_viewport())
+        self.canvas = NativeWindow(self)
         self._io = imgui.get_io()
         self._io.config_flags |= imgui.ConfigFlags_.docking_enable
-        self._input_handlers: dict[str, list[Callable]] = {}
-        self._viewport_host = None
-        if native_glfw:
-            self._viewport_host = GlfwViewportHost(self, viewports)
+        self._viewport_host = GlfwViewportHost(self, viewports)
 
         # -- Runtime state --
         self.state: Any = state
@@ -150,7 +135,7 @@ class GUI:
         self._pygfx_scenes: dict[str, Any] = {}
 
         # -- Clock for delta time --
-        self._clock = gfx.Clock()
+        self._last_frame = time.perf_counter()
 
         # -- asyncio helper thread --
         self.asyncio_loop: asyncio.AbstractEventLoop = asyncio.new_event_loop()
@@ -164,13 +149,6 @@ class GUI:
             initializer=_worker_initializer, initargs=(os.getpid(),),
         )
         self.job_counter: int = 0
-        self.canvas.add_event_handler(self._on_canvas_close, "close")
-        self.canvas.add_event_handler(
-            self._on_canvas_input, "pointer_down", "pointer_up", "pointer_move",
-            "wheel", "key_down", "key_up", "char", "resize"
-        )
-        self.add_cleanup(self._dispose_gui_renderer)
-
     # ------------------------------------------------------------------
     # Helpers
     # ------------------------------------------------------------------
@@ -226,26 +204,6 @@ class GUI:
             else:
                 future.set_result(result)
 
-    def _dispatch(self) -> None:
-        self._drain_posts()
-        if not self._closed:
-            self.canvas.request_draw()
-
-    def _start_dispatch(self) -> None:
-        with self._lifecycle_lock:
-            if self._closed:
-                return
-            self._dispatch_ready = True
-        self._dispatch()
-
-    def _on_canvas_input(self, event: dict) -> None:
-        self.request_draw()
-        if self._viewport_host is None:
-            self._emit_input(event)
-
-    def _on_canvas_close(self, event: dict) -> None:
-        self.close()
-
     def _record_error(self, error: BaseException) -> None:
         self.errors.append(error)
         self.state.statusline = f"Error: {error}"
@@ -254,36 +212,49 @@ class GUI:
             exc_info=(type(error), error, error.__traceback__),
         )
 
+    def make_current(self) -> None:
+        glfw.make_context_current(self.window)
+        imgui.set_current_context(self.imgui_context)
+
+    def create_image(self, pixels):
+        from .image import ImageTexture
+        self._require_open()
+        return ImageTexture(self, pixels)
+
+    def _pre_new_frame(self) -> None:
+        self._viewport_host.pre_new_frame()
+
+    def _post_new_frame(self) -> None:
+        self._viewport_host.post_new_frame()
+
     def _render_frame(self) -> None:
         if self._closed:
             return
+        self.make_current()
         self._frame_active = True
         try:
-            if self._viewport_host is None:
-                self.gui_renderer.render()
-            else:
-                self._viewport_host.render()
+            immapp.manual_render.render()
+            self._rendered = True
+            self.make_current()
+            self._viewport_host.after_frame()
+            if self._startup_frames_remaining:
+                self._startup_frames_remaining -= 1
+                if self._startup_frames_remaining:
+                    # Hello ImGui maps its initially hidden main window on
+                    # frame four, even when the application renders on demand.
+                    self.request_draw()
         finally:
             self._frame_active = False
             if self._closed:
                 self._shutdown()
-
-    def _dispose_gui_renderer(self) -> None:
-        # ImguiRenderer has no public close method. Release the context via
-        # ImGui's API, then drop renderer references after widget cleanup.
-        if self._viewport_host is not None:
-            self._viewport_host.close()
-            self._viewport_host = None
-        context = self.gui_renderer.imgui_context
-        self.gui_renderer.set_gui(None)
-        imgui.destroy_context(context)
-        self.gui_renderer = None
-        self.renderer = None
-        self._io = None
+            else:
+                self._drain_posts()
 
     def _draw_imgui(self) -> None:
-        """Called by ImguiRenderer to build the imgui frame."""
-        dt = self._clock.get_delta()
+        """Build the ImGui frame."""
+        now = time.perf_counter()
+        dt = now - self._last_frame
+        self._last_frame = now
 
         self._drain_posts()
         if self._closed:
@@ -353,19 +324,17 @@ class GUI:
                 return future
             self._posts.put((future, callback, args))
             if self._dispatch_ready:
-                loop.call_soon_threadsafe(self._dispatch)
+                self._draw_requested = True
+                glfw.post_empty_event()
         return future
 
     def request_draw(self) -> None:
-        """Wake an on-demand canvas, safely callable from worker threads."""
-        if threading.get_ident() == self._ui_thread:
+        """Request a frame and wake the native event loop."""
+        with self._lifecycle_lock:
             if not self._closed:
-                self.canvas.request_draw()
-        else:
-            with self._lifecycle_lock:
-                if not self._closed and self._dispatch_ready:
-                    loop.call_soon_threadsafe(self._dispatch)
-        # Before run, the initial draw and startup dispatch consume queued work.
+                self._draw_requested = True
+                if self._dispatch_ready:
+                    glfw.post_empty_event()
 
     def submit_job(
         self,
@@ -499,18 +468,33 @@ class GUI:
                     "Coroutine shutdown exceeded one second; background work "
                     "must cooperate with cancellation"
                 ))
-        context = self.gui_renderer.imgui_context
+        context = self.imgui_context
         previous_context = imgui.get_current_context()
-        imgui.set_current_context(context)
+        self.make_current()
         while self._cleanups:
             cleanup = self._cleanups.pop()
             try:
                 cleanup()
             except Exception as error:
                 self._record_error(error)
+        for delete in tuple(self._deferred_image_deletions):
+            delete()
+        for image in tuple(self._images):
+            image.close()
+        if not self._rendered:
+            # Hello ImGui captures a final screenshot during teardown. Produce
+            # draw data without calling application code if no frame ran.
+            callbacks = self._runner_params.callbacks
+            callbacks.show_gui = lambda: None
+            callbacks.pre_new_frame = lambda: None
+            callbacks.post_new_frame = lambda: None
+            self._runner_params.app_shall_exit = False
+            immapp.manual_render.render()
+            self.make_current()
+        self._viewport_host.close()
+        immapp.manual_render.tear_down()
         if previous_context != context:
             imgui.set_current_context(previous_context)
-        self.canvas.close()
 
     def set_floating(self, aspect_ratio: Optional[tuple[int, int]] = None) -> None:
         """Make the window floating (always on top) with an optional fixed aspect ratio.
@@ -522,13 +506,7 @@ class GUI:
             aspect_ratio: Optional tuple of (width, height) to constrain the window
                 aspect ratio during resizing. For example, (16, 9) for 16:9 ratio.
         """
-        # Check if we have a GLFW window (rendercanvas stores it as _window)
-        window = getattr(self.canvas, "_window", None)
-        if window is None:
-            self.logger.warning(
-                "set_floating() is only supported with the GLFW backend"
-            )
-            return
+        window = self.window
 
         # Make window floating (always on top)
         glfw.set_window_attrib(window, glfw.FLOATING, glfw.TRUE)
@@ -545,14 +523,26 @@ class GUI:
         if self._running:
             raise RuntimeError("GUI is already running")
         self._running = True
+        with self._lifecycle_lock:
+            self._dispatch_ready = True
+        next_frame = time.perf_counter()
         try:
-            self.state.update_window(self.canvas)
-            if hasattr(self.state, "gl_init"):
-                self.state.gl_init(self.canvas, self.renderer)
-            self.gui_renderer.set_gui(self._draw_imgui)
-            self.canvas.request_draw(self._render_frame)
-            loop.call_soon(self._start_dispatch)
-            loop.run()
+            while not self._closed and not self._runner_params.app_shall_exit:
+                self._drain_posts()
+                if self._closed:
+                    break
+                now = time.perf_counter()
+                if (self.update_mode == "continuous" or self._draw_requested) and now >= next_frame:
+                    with self._lifecycle_lock:
+                        self._draw_requested = False
+                    self._render_frame()
+                    next_frame = time.perf_counter() + 1.0 / self.max_fps
+                else:
+                    timeout = max(0.0, next_frame - now) if (self.update_mode == "continuous" or self._draw_requested) else None
+                    if timeout is None:
+                        glfw.wait_events()
+                    else:
+                        glfw.wait_events_timeout(timeout)
         finally:
             self._running = False
             self.close()

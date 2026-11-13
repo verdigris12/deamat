@@ -4,44 +4,48 @@ import importlib
 from types import SimpleNamespace
 
 import numpy as np
-import pygfx as gfx
 import pytest
-from rendercanvas.offscreen import RenderCanvas
+gfx = pytest.importorskip("pygfx")
+pytest.importorskip("wgpu")
+RenderCanvas = pytest.importorskip("rendercanvas.offscreen").RenderCanvas
 
 canvas_module = importlib.import_module("deamat.widgets.pygfx_canvas")
 
 
-class TextureRegistry:
-    def __init__(self):
-        self.textures = {}
-        self.removed = []
-        self.counter = 0
+class Image:
+    def __init__(self, pixels):
+        self.ref = object()
+        self.closed = False
+        self.uploads = 0
+        self.update(pixels)
 
-    def register_texture(self, texture):
-        self.counter += 1
-        self.textures[self.counter] = texture
-        return self.counter
+    def update(self, pixels):
+        self.pixels = np.array(pixels, copy=True)
+        self.uploads += 1
 
-    def unregister_texture(self, texture_id):
-        self.removed.append(texture_id)
-        del self.textures[texture_id]
+    def close(self):
+        self.closed = True
 
 
 @pytest.fixture
 def host():
-    backend = TextureRegistry()
+    images = []
+    def create_image(pixels):
+        image = Image(pixels)
+        images.append(image)
+        return image
     cleanups = []
     requests = []
     gui = SimpleNamespace(
         canvas=RenderCanvas(size=(640, 480), pixel_ratio=2),
-        gui_renderer=SimpleNamespace(backend=backend),
+        create_image=create_image, make_current=lambda: None,
         _pygfx_scenes={}, scenes={}, add_cleanup=cleanups.append,
         get_pixel_ratio=lambda: gui.canvas.get_pixel_ratio(),
         add_input_handler=lambda callback, *types: None,
         remove_input_handler=lambda callback, *types: None,
         request_draw=lambda: requests.append(True),
     )
-    yield gui, backend, requests
+    yield gui, images, requests
     for cleanup in reversed(cleanups):
         cleanup()
     gui.canvas.close()
@@ -78,7 +82,7 @@ def make_view(host, camera=None):
 
 
 def test_single_initial_and_resize_render_preserves_camera_and_renderer(host, ui, monkeypatch):
-    gui, backend, _ = host
+    gui, images, _ = host
     camera = gfx.OrthographicCamera(6, 4)
     renders = []
     original = gfx.WgpuRenderer.render
@@ -104,29 +108,31 @@ def test_single_initial_and_resize_render_preserves_camera_and_renderer(host, ui
     assert view.renderer is renderer
     assert view._texture.size == (360, 200, 1)
     assert (camera.width, camera.height, camera.fov) == extents
-    assert len(backend.textures) == 1
+    assert len(images) == 1
+    assert images[0].pixels.shape == (200, 360, 4)
+    assert images[0].uploads == 2
     canvas_module.pygfx_canvas(gui, None, "view", camera=camera, continuous=False)
     assert len(renders) == 2  # static idle frame does not render
-
+    assert images[0].uploads == 2
 
 def test_detached_move_keeps_texture_and_ratio_change_preserves_scene(host, ui, monkeypatch):
-    gui, backend, _ = host
+    gui, images, _ = host
     ratio = [1]
     origin = [10, 20]
     monkeypatch.setattr(gui, "get_pixel_ratio", lambda: ratio[0])
     monkeypatch.setattr(canvas_module.imgui, "get_cursor_screen_pos",
                         lambda: canvas_module.imgui.ImVec2(*origin))
     view = canvas_module.pygfx_canvas(gui, None, "view", continuous=False)
-    renderer, scene, camera, texture = view.renderer, view.scene, view.camera, view._texture
+    renderer, scene, camera, image = view.renderer, view.scene, view.camera, view._image
     origin[:] = [800, 400]
     canvas_module.pygfx_canvas(gui, None, "view", continuous=False)
-    assert view._texture is texture
-    assert not backend.removed
+    assert view._image is image
+    assert image.uploads == 1
     ratio[0] = 2
     canvas_module.pygfx_canvas(gui, None, "view", continuous=False)
     assert view._texture.size == (240, 200, 1)
     assert (view.renderer, view.scene, view.camera) == (renderer, scene, camera)
-    assert len(backend.removed) == 1
+    assert image.uploads == 2
 
 
 def test_focus_loss_releases_captured_input(host, ui):
@@ -261,7 +267,7 @@ def test_renderer_picks_scene_click_hover_and_pointer_capture(host):
 
 
 def test_keyboard_release_survives_focus_change_and_close_is_idempotent(host, ui):
-    gui, backend, _ = host
+    gui, images, _ = host
     view = make_view(host)
     gui._pygfx_keyboard_view = view
     events = []
@@ -272,8 +278,7 @@ def test_keyboard_release_survives_focus_change_and_close_is_idempotent(host, ui
     assert events == [("key_down", "w"), ("key_up", "w")]
     view.close()
     view.close()
-    assert not backend.textures
-    assert len(backend.removed) == 1
+    assert not images
     assert not gui._pygfx_scenes
     assert not gui.scenes
     assert view.renderer is None

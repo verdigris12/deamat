@@ -1,2 +1,0 @@
-nanobind==2.7.0
-scikit-build-core==1.1.2

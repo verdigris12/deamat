@@ -38,8 +38,6 @@ def test_secondary_identity_overlap_and_native_close():
                 imgui.end()
 
         gui.update = update
-        gui.gui_renderer.set_gui(gui._draw_imgui)
-        gui.canvas.request_draw(gui._render_frame)
 
         def frame():
             glfw.poll_events()
@@ -65,11 +63,11 @@ def test_secondary_identity_overlap_and_native_close():
         assert "_NET_WM_WINDOW_TYPE_UTILITY" in props
         assert "_NET_WM_STATE_ABOVE" not in props
         main_props = subprocess.check_output(
-            ["xprop", "-id", str(glfw.get_x11_window(gui.canvas._window)), "WM_CLASS"], text=True,
+            ["xprop", "-id", str(glfw.get_x11_window(gui.window)), "WM_CLASS"], text=True,
         )
         assert '"DeamatViewport"' not in main_props
 
-        x, y = glfw.get_window_pos(gui.canvas._window)
+        x, y = glfw.get_window_pos(gui.window)
         glfw.set_window_pos(window, x + 50, y + 50)
         for _ in range(4):
             frame()

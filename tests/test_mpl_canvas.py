@@ -15,23 +15,82 @@ from deamat.mpl_canvas import FigureView, _handle_input, _view_id, get_figure_vi
 from deamat.widgets.figure import _resolve_figure
 
 
+def test_imports_do_not_require_optional_pygfx_dependencies():
+    import subprocess
+    import sys
+
+    script = """
+import builtins
+original = builtins.__import__
+def guarded(name, *args, **kwargs):
+    if name.split('.')[0] in {'pygfx', 'wgpu', 'rendercanvas'}:
+        raise ImportError('optional dependency unavailable')
+    return original(name, *args, **kwargs)
+builtins.__import__ = guarded
+import deamat
+import deamat.widgets
+from deamat.mpl_canvas import FigureView
+from deamat.widgets.pygfx_canvas import PygfxCanvas
+try:
+    PygfxCanvas(None, 'view', (1, 1), 1)
+except ImportError as exc:
+    assert 'deamat[pygfx]' in str(exc)
+else:
+    raise AssertionError('missing optional dependency did not raise')
+"""
+    subprocess.run([sys.executable, "-c", script], check=True)
+
+
+def test_image_texture_reuses_storage_and_defers_deletion_during_frame(monkeypatch):
+    from deamat.image import GL, ImageTexture
+
+    deleted, posted, allocations, uploads = [], [], [], []
+    names = iter((11, 12))
+    monkeypatch.setattr(GL, "glGenTextures", lambda count: next(names))
+    monkeypatch.setattr(GL, "glDeleteTextures", lambda names: deleted.extend(names))
+    monkeypatch.setattr(GL, "glBindTexture", lambda *args: None)
+    monkeypatch.setattr(GL, "glTexParameteri", lambda *args: None)
+    monkeypatch.setattr(GL, "glPixelStorei", lambda *args: None)
+    monkeypatch.setattr(GL, "glTexImage2D", lambda *args: allocations.append(args[3:5]))
+    monkeypatch.setattr(GL, "glTexSubImage2D", lambda *args: uploads.append(args[4:6]))
+    current = []
+    gui = SimpleNamespace(_images=set(), _deferred_image_deletions=[], _frame_active=True, post=posted.append,
+                          make_current=lambda: current.append(True))
+    image = ImageTexture(gui, np.zeros((2, 3, 4), dtype=np.uint8))
+    assert image in gui._images
+    image.update(np.zeros((2, 3, 4), dtype=np.uint8))
+    assert allocations == [(3, 2)]
+    assert uploads == [(3, 2)]
+    image.update(np.zeros((4, 5, 4), dtype=np.uint8))
+    assert image.size == (5, 4)
+    image.close()
+    image.close()
+    assert not gui._images and not deleted
+    assert len(posted) == 2
+    for callback in posted:
+        callback()
+    assert deleted == [11, 12]
+    assert len(current) == 5
+
+
 def recording_gui():
     textures = []
-    backend = Mock()
-    backend.register_texture.side_effect = lambda texture: object()
-    device = Mock()
+    def create_image(pixels):
+        image = SimpleNamespace(ref=object(), uploads=0, closed=False)
+        def update(pixels):
+            image.pixels = np.array(pixels, copy=True)
+            image.size = (image.pixels.shape[1], image.pixels.shape[0])
+            image.uploads += 1
+        def close():
+            image.closed = True
+        image.update, image.close = update, close
+        update(pixels)
+        textures.append(image)
+        return image
 
-    def create_texture(**kwargs):
-        texture = Mock()
-        texture.dimensions = kwargs["size"]
-        textures.append(texture)
-        return texture
-
-    device.create_texture.side_effect = create_texture
     cleanups = []
     return SimpleNamespace(
-        renderer=SimpleNamespace(device=device),
-        gui_renderer=SimpleNamespace(backend=backend),
+        create_image=create_image,
         request_draw=Mock(), add_cleanup=cleanups.append,
         add_input_handler=Mock(), remove_input_handler=Mock(),
         get_pixel_ratio=Mock(return_value=1),
@@ -53,18 +112,18 @@ class TestFigureCanvas(unittest.TestCase):
         return tuple((axes or self.axes).bbox.get_points().mean(axis=0))
 
     def test_static_frames_and_stale_artist_changes(self):
-        queue = self.gui.renderer.device.queue
+        image = self.gui.textures[0]
         with patch.object(self.view.canvas, "draw", wraps=self.view.canvas.draw) as draw:
             texture, size = self.view.render()
             self.view.render()
             self.assertEqual(size, (400, 300))
             self.assertEqual(draw.call_count, 0)
-            self.assertEqual(queue.write_texture.call_count, 1)
+            self.assertEqual(image.uploads, 1)
             self.line.set_color("red")
             changed_texture, _ = self.view.render()
             self.assertIs(texture, changed_texture)
             self.assertEqual(draw.call_count, 1)
-            self.assertEqual(queue.write_texture.call_count, 2)
+            self.assertEqual(image.uploads, 2)
             self.view.invalidate()
             self.view.render()
             self.assertEqual(draw.call_count, 2)
@@ -72,7 +131,7 @@ class TestFigureCanvas(unittest.TestCase):
     def test_fit_preserves_intrinsic_size_aspect_and_export_dimensions(self):
         _, size = self.view.render(size=(700, 450), fit=True, pixel_ratio=2)
         self.assertEqual(size, (600, 450))
-        self.assertEqual(self.gui.textures[-1].dimensions, (1200, 900, 1))
+        self.assertEqual(self.gui.textures[-1].size, (1200, 900))
         self.assertEqual(self.figure.dpi, 100)
         np.testing.assert_allclose(self.figure.get_size_inches(), [4, 3])
         output = BytesIO()
@@ -82,13 +141,13 @@ class TestFigureCanvas(unittest.TestCase):
             self.assertEqual(image.size, (400, 300))
         self.view.render(fit=False, pixel_ratio=2)
         np.testing.assert_allclose(self.figure.get_size_inches(), [4, 3])
-        self.assertEqual(self.gui.textures[-1].dimensions, (800, 600, 1))
+        self.assertEqual(self.gui.textures[-1].size, (800, 600))
         self.figure.set_size_inches(6, 4)
         self.view.render(size=(500, 200), fit=True)
         np.testing.assert_allclose(self.figure.get_size_inches(), [6, 4])
         self.view.render(fit=False)
         np.testing.assert_allclose(self.figure.get_size_inches(), [6, 4])
-        self.assertTrue(self.gui.textures[0].destroy.called)
+        self.assertEqual(len(self.gui.textures), 1)
 
     def test_pan_release_outside_records_final_position_and_history(self):
         initial = self.axes.get_xlim()
@@ -205,21 +264,21 @@ class TestFigureCanvas(unittest.TestCase):
         from deamat.mpl_canvas import draw_figure
 
         origin = SimpleNamespace(x=800, y=400)
-        queue = self.gui.renderer.device.queue
+        image = self.gui.textures[0]
         with patch("deamat.mpl_canvas._handle_input"), patch.multiple(
             "deamat.mpl_canvas.imgui",
             push_id=Mock(), pop_id=Mock(), image=Mock(), set_cursor_screen_pos=Mock(),
             invisible_button=Mock(), get_cursor_screen_pos=Mock(return_value=origin),
         ):
             draw_figure(self.gui, "plot", self.figure, size=(400, 300), toolbar=False)
-            self.assertEqual(queue.write_texture.call_count, 1)
+            self.assertEqual(image.uploads, 1)
             origin.x, origin.y = 1200, 600
             draw_figure(self.gui, "plot", self.figure, size=(400, 300), toolbar=False)
-            self.assertEqual(queue.write_texture.call_count, 1)
+            self.assertEqual(image.uploads, 1)
             self.gui.get_pixel_ratio.return_value = 2
             draw_figure(self.gui, "plot", self.figure, size=(400, 300), toolbar=False)
-            self.assertEqual(queue.write_texture.call_count, 2)
-            self.assertEqual(self.view._texture_size, (800, 600))
+            self.assertEqual(image.uploads, 2)
+            self.assertEqual(image.size, (800, 600))
             self.assertIs(self.view.figure, self.figure)
 
     def test_rectangle_zoom_preserves_data(self):
@@ -288,9 +347,9 @@ class TestFigureCanvas(unittest.TestCase):
         replacement = get_figure_view(self.gui, "plot", Figure())
         self.assertTrue(self.view.closed)
         self.assertIs(self.figure.canvas, original_canvas)
-        self.assertEqual(self.gui.textures[0].destroy.call_count, 1)
+        self.assertTrue(self.gui.textures[0].closed)
         self.view.close()
-        self.assertEqual(self.gui.textures[0].destroy.call_count, 1)
+        self.assertTrue(self.gui.textures[0].closed)
         self.assertEqual(len(self.gui.cleanups), 1)
         self.gui.cleanups[0]()
         self.assertTrue(other.closed)

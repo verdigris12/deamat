@@ -1,12 +1,14 @@
-"""Retained, zero-copy pygfx views embedded in ImGui."""
+"""Retained pygfx views embedded in ImGui."""
 
-from typing import Any, Callable
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Any, Callable
 from weakref import ref
 
-import pygfx as gfx
-import wgpu
 from imgui_bundle import imgui
-from rendercanvas.offscreen import RenderCanvas
+
+if TYPE_CHECKING:
+    import pygfx as gfx
 
 
 _INPUT_EVENTS = ("pointer_down", "pointer_move", "pointer_up", "wheel", "key_down", "key_up")
@@ -24,6 +26,26 @@ class PygfxCanvas:
     """
 
     def __init__(self, gui, canvas_id, size, pixel_ratio, camera=None):
+        try:
+            import pygfx as gfx
+            import wgpu
+            from pygfx.renderers.wgpu.engine.shared import Shared
+            from rendercanvas.offscreen import RenderCanvas
+        except ImportError as exc:
+            raise ImportError("The pygfx widget requires the deamat pygfx extra: install deamat[pygfx]") from exc
+
+        self._gfx = gfx
+        self._wgpu = wgpu
+        try:
+            if Shared._instance is None:
+                adapter = wgpu.gpu.request_adapter_sync(power_preference="high-performance")
+                Shared._features = Shared._features & set(adapter.features)
+            self._target = RenderCanvas(size=size, pixel_ratio=pixel_ratio)
+            self.renderer = gfx.WgpuRenderer(self._target, pixel_scale=1, enable_events=False)
+            self._context = self._target.get_context("wgpu")
+            self._configure_target()
+        finally:
+            gui.make_current()
         self._gui = gui
         self._canvas_id = canvas_id
         self.scene = gfx.Scene()
@@ -40,15 +62,7 @@ class PygfxCanvas:
         self._image_pos = (0.0, 0.0)
         self._size = size
         self._pixel_ratio = pixel_ratio
-        self._tex_ref = None
-        self._texture = None
-        self._texture_view = None
-        # Never call draw(): that presents a CPU bitmap. Render directly into
-        # the context texture and share its GPU view with ImGui instead.
-        self._target = RenderCanvas(size=size, pixel_ratio=pixel_ratio)
-        self.renderer = gfx.WgpuRenderer(self._target, pixel_scale=1, enable_events=False)
-        self._context = self._target.get_context("wgpu")
-        self._configure_target()
+        self._image = None
         self._viewport = gfx.Viewport(self.renderer)
         self.renderer.add_event_handler(self._controller_event, *_INPUT_EVENTS)
         gui.add_input_handler(self._native_event, "key_down", "key_up", "pointer_up", "focus_out")
@@ -65,11 +79,10 @@ class PygfxCanvas:
         self._context.configure(
             device=self.renderer.device,
             format="rgba8unorm",
-            usage=wgpu.TextureUsage.RENDER_ATTACHMENT | wgpu.TextureUsage.TEXTURE_BINDING,
+            usage=(self._wgpu.TextureUsage.RENDER_ATTACHMENT | self._wgpu.TextureUsage.TEXTURE_BINDING |
+                   self._wgpu.TextureUsage.COPY_SRC),
         )
         self._texture = self._context.get_current_texture()
-        self._texture_view = self._texture.create_view()
-        self._tex_ref = self._gui.gui_renderer.backend.register_texture(self._texture_view)
 
     @property
     def camera(self):
@@ -77,7 +90,7 @@ class PygfxCanvas:
 
     @camera.setter
     def camera(self, camera):
-        if not isinstance(camera, gfx.Camera):
+        if not isinstance(camera, self._gfx.Camera):
             raise TypeError("camera must be a pygfx Camera")
         if camera is self._camera:
             return
@@ -162,15 +175,15 @@ class PygfxCanvas:
     def _resize(self, size, pixel_ratio):
         if (size, pixel_ratio) == (self._size, self._pixel_ratio):
             return
-        self._gui.gui_renderer.backend.unregister_texture(self._tex_ref)
-        self._tex_ref = None
-        self._texture_view = None
         self._texture.destroy()
         self._texture = None
         self._context.unconfigure()
         self._target.set_pixel_ratio(pixel_ratio)
         self._target.set_logical_size(*size)
-        self._configure_target()
+        try:
+            self._configure_target()
+        finally:
+            self._gui.make_current()
         self._size, self._pixel_ratio = size, pixel_ratio
         # set_view_size affects projection, never camera world extents or FOV.
         self.camera.set_view_size(*size)
@@ -187,11 +200,10 @@ class PygfxCanvas:
         self._gui.remove_input_handler(self._native_event, "key_down", "key_up", "pointer_up", "focus_out")
         if getattr(self._gui, "_pygfx_keyboard_view", None) is self:
             self._gui._pygfx_keyboard_view = None
-        if self._tex_ref is not None:
-            self._gui.gui_renderer.backend.unregister_texture(self._tex_ref)
-        self._tex_ref = self._texture_view = None
-        if self._texture is not None:
-            self._texture.destroy()
+        if self._image is not None:
+            self._image.close()
+            self._image = None
+        self._texture.destroy()
         self._texture = None
         self._context.unconfigure()
         self._target.close()
@@ -280,9 +292,24 @@ def pygfx_canvas(
     changed = view.controller.tick() if view.controller is not None else None
     if continuous or view._dirty or changed is not None:
         view._dirty = False
-        view.renderer.render(view.scene, view.camera)
+        try:
+            view.renderer.render(view.scene, view.camera)
+            width, height, _ = view._texture.size
+            pixels = view.renderer.device.queue.read_texture(
+                {"texture": view._texture},
+                {"bytes_per_row": width * 4, "rows_per_image": height},
+                (width, height, 1),
+            )
+        finally:
+            gui.make_current()
+        import numpy as np
+        rgba = np.frombuffer(pixels, dtype=np.uint8).reshape(height, width, 4)
+        if view._image is None:
+            view._image = gui.create_image(rgba)
+        else:
+            view._image.update(rgba)
     # Drawing after the input item keeps the layout item and its focus intact.
-    imgui.get_window_draw_list().add_image(view._tex_ref, pos, imgui.ImVec2(pos.x + size[0], pos.y + size[1]))
+    imgui.get_window_draw_list().add_image(view._image.ref, pos, imgui.ImVec2(pos.x + size[0], pos.y + size[1]))
     if continuous or changed is not None:
         gui.request_draw()
     return view

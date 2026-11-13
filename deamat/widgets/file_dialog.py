@@ -1,9 +1,8 @@
-"""Embedded ImFileDialog with WGPU-owned icon and thumbnail textures."""
+"""Embedded ImFileDialog picker."""
 
 from dataclasses import dataclass
 from pathlib import Path
 
-import wgpu
 from imgui_bundle import imgui, im_file_dialog
 
 
@@ -17,24 +16,16 @@ class DialogResult:
 class FileDialog:
     """An embedded picker. Call draw every frame in the same ImGui ID scope.
 
-    A patched imgui-bundle providing FileDialog texture callbacks is required.
-    One request may be active at a time; close releases the widget permanently.
+    Only one request may be active across all wrappers.
+    Close releases the widget permanently.
     """
+
+    _owner = None
 
     def __init__(self, gui):
         gui._require_open()
         self._gui = gui
-        self._dialog = im_file_dialog.FileDialog()
-        if not callable(getattr(self._dialog, "set_texture_callbacks", None)) or not callable(
-            getattr(self._dialog, "clear_texture_callbacks", None)
-        ):
-            raise RuntimeError(
-                "Embedded file dialogs require the patched imgui-bundle 1.92.0 "
-                "with FileDialog texture callbacks; vanilla imgui-bundle is unsupported"
-            )
-        self._textures = {}
-        self._retired = []
-        self._retire_posted = False
+        self._dialog = im_file_dialog.FileDialog.instance()
         self._key = f"deamat_file_dialog_{id(self):x}"
         self._title = ""
         self._active = False
@@ -43,12 +34,9 @@ class FileDialog:
         self._save = False
         self._overwrite = None
         self._closed = False
-        self._dialog.set_texture_callbacks(self._create_texture, self._delete_texture)
-        try:
-            gui.add_cleanup(self._dispose)
-        except BaseException:
-            self._dialog.clear_texture_callbacks()
-            raise
+        self._native_pending = False
+        self._native_closed = True
+        gui.add_cleanup(self._dispose)
 
     @property
     def active(self):
@@ -59,11 +47,13 @@ class FileDialog:
         self._require_frame()
         if self._closed:
             raise RuntimeError("file dialog is closed")
-        if self._active:
+        if FileDialog._owner is not None:
             raise RuntimeError("a file dialog request is already active")
+        FileDialog._owner = self
         self._title = title
         self._multiple = multiselect
         self._save = save
+        self._native_closed = False
         try:
             if save:
                 opened = self._dialog.save(self._key, title, filter, str(starting_dir))
@@ -72,7 +62,7 @@ class FileDialog:
             if not opened:
                 raise RuntimeError("ImFileDialog rejected the request")
         except BaseException:
-            self._dialog.close()
+            self._schedule_close()
             raise
         self._active = True
         self._drawn = False
@@ -99,29 +89,27 @@ class FileDialog:
         self._require_frame()
         if not self._active:
             return None
-        if self._overwrite is not None:
-            return self._draw_overwrite()
-        self._drawn = True
-        if not self._dialog.is_done(self._key):
-            return None
         try:
+            if self._overwrite is not None:
+                return self._draw_overwrite()
+            self._drawn = True
+            if not self._dialog.is_done(self._key):
+                return None
             if not self._dialog.has_result():
                 result = DialogResult(())
             else:
                 paths = self._dialog.get_results() if self._multiple else (self._dialog.get_result(),)
                 result = DialogResult(tuple(Path(path.path()) for path in paths))
-        finally:
-            try:
-                self._dialog.close()
-            finally:
-                self._active = False
-                self._drawn = False
-        if self._save and result.paths and (result.paths[0].exists() or result.paths[0].is_symlink()):
-            imgui.open_popup(self._overwrite_title())
-            self._overwrite = result
-            self._active = True
-            self._drawn = True
-            return self._draw_overwrite()
+            self._schedule_close()
+            if self._save and result.paths and (result.paths[0].exists() or result.paths[0].is_symlink()):
+                imgui.open_popup(self._overwrite_title())
+                self._overwrite = result
+                return self._draw_overwrite()
+        except BaseException:
+            self._schedule_close()
+            self._release()
+            raise
+        self._release()
         return result
 
     def _overwrite_title(self):
@@ -149,58 +137,12 @@ class FileDialog:
         if keep_open is False:
             result = DialogResult(())
         if result is not None:
-            self._overwrite = None
-            self._active = False
-            self._drawn = False
+            self._release()
         return result
 
-    def _create_texture(self, pixels, width, height, format):
-        device = self._gui.renderer.device
-        texture = device.create_texture(
-            label="imfiledialog", size=(width, height, 1),
-            format=wgpu.TextureFormat.bgra8unorm if format == 0 else wgpu.TextureFormat.rgba8unorm,
-            usage=wgpu.TextureUsage.COPY_DST | wgpu.TextureUsage.TEXTURE_BINDING,
-        )
-        try:
-            device.queue.write_texture(
-                destination={"texture": texture, "origin": (0, 0, 0)},
-                data=pixels,
-                data_layout={"bytes_per_row": width * 4, "rows_per_image": height},
-                size=(width, height, 1),
-            )
-            ref = self._gui.gui_renderer.backend.register_texture(texture.create_view())
-        except BaseException:
-            texture.destroy()
-            raise
-        tex_id = ref.get_tex_id()
-        self._textures[tex_id] = (ref, texture)
-        return tex_id
-
-    def _delete_texture(self, tex_id):
-        resource = self._textures.pop(tex_id, None)
-        if resource is None:
-            return
-        self._retired.append(resource)
-        if self._gui._frame_active:
-            # Draw data in this frame may still refer to this view, including
-            # in secondary viewports. Unregister only after the frame submits.
-            if not self._retire_posted:
-                self._retire_posted = True
-                self._gui.post(self._flush_retired)
-        else:
-            self._flush_retired()
-
-    def _flush_retired(self):
-        self._retire_posted = False
-        while self._retired:
-            ref, texture = self._retired.pop()
-            try:
-                self._gui.gui_renderer.backend.unregister_texture(ref)
-            finally:
-                texture.destroy()
 
     def _require_frame(self):
-        if not self._gui._frame_active or imgui.get_current_context() != self._gui.gui_renderer.imgui_context:
+        if not self._gui._frame_active or imgui.get_current_context() != self._gui.imgui_context:
             raise RuntimeError("file dialog drawing requires its GUI's active ImGui frame")
 
     def close(self):
@@ -218,19 +160,43 @@ class FileDialog:
             imgui.end_popup()
         self._dispose()
 
-    def _dispose(self):
-        if self._closed:
-            if not self._gui._frame_active:
-                self._flush_retired()
+    def _release(self):
+        self._active = False
+        self._drawn = False
+        self._overwrite = None
+        if FileDialog._owner is self and not self._native_pending:
+            FileDialog._owner = None
+
+    def _schedule_close(self):
+        if self._native_closed or self._native_pending:
             return
-        self._closed = True
+        self._native_pending = True
+        if self._gui._frame_active:
+            self._gui.post(self._finish_close)
+        else:
+            self._finish_close()
+
+    def _finish_close(self):
+        if not self._native_pending:
+            return
         try:
             self._dialog.close()
-        finally:
+        except BaseException:
             self._active = False
+            self._drawn = False
             self._overwrite = None
-            try:
-                for tex_id in tuple(self._textures):
-                    self._delete_texture(tex_id)
-            finally:
-                self._dialog.clear_texture_callbacks()
+            raise
+        finally:
+            self._native_closed = True
+            self._native_pending = False
+            if not self._active and FileDialog._owner is self:
+                FileDialog._owner = None
+
+    def _dispose(self):
+        if not self._closed:
+            self._closed = True
+            if FileDialog._owner is self:
+                self._schedule_close()
+                self._release()
+        if self._native_pending and not self._gui._frame_active:
+            self._finish_close()

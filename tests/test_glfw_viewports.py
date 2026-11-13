@@ -1,6 +1,7 @@
 """Native regressions: run on Linux with a display (CI can use Xvfb)."""
 import os
 import sys
+import threading
 from types import SimpleNamespace
 
 import pytest
@@ -31,7 +32,7 @@ def test_fast_native_click_reaches_viewport_checkbox(viewports, detached):
     try:
         if viewports and not gui._viewport_host.enabled:
             pytest.skip("native detached viewports unavailable")
-        glfw.set_window_pos(gui.canvas._window, 50, 50)
+        glfw.set_window_pos(gui.window, 50, 50)
         imgui.get_io().set_ini_filename("")
         state = {"checked": False, "window": None, "point": None, "mouse": None}
 
@@ -52,8 +53,6 @@ def test_fast_native_click_reaches_viewport_checkbox(viewports, detached):
             imgui.end()
 
         gui.update = update
-        gui.gui_renderer.set_gui(gui._draw_imgui)
-        gui.canvas.request_draw(gui._render_frame)
 
         def frame():
             glfw.poll_events()
@@ -86,10 +85,40 @@ def test_fast_native_click_reaches_viewport_checkbox(viewports, detached):
         gui.close()
 
 
+def test_ondemand_shows_main_window_without_external_redraw():
+    gui = GUI(GUIState(), width=640, height=480, update_mode="ondemand")
+    visible = []
+
+    def update(_state, owner, _dt):
+        if glfw.get_window_attrib(owner.window, glfw.VISIBLE):
+            visible.append(True)
+            owner.close()
+
+    gui.update = update
+    timeout = threading.Timer(3, lambda: gui.post(gui.close))
+    timeout.start()
+    try:
+        gui.run()
+    finally:
+        timeout.cancel()
+    assert visible == [True]
+    assert not gui.errors
+
+
+def test_close_before_first_frame_does_not_call_update():
+    gui = GUI(GUIState(), width=640, height=480)
+    updates = []
+    gui.update = lambda *args: updates.append(args)
+    gui.close()
+    assert gui._shutdown_complete
+    assert updates == []
+    assert not gui.errors
+
+
 def test_native_main_close_shuts_down_before_window_destruction():
     gui = GUI(GUIState(), width=640, height=480)
     try:
-        window = gui.canvas._window
+        window = gui.window
         close = _callback(window, glfw._glfw.glfwSetWindowCloseCallback)
         glfw.set_window_should_close(window, True)
         close(window)
@@ -121,8 +150,6 @@ def test_callback_survives_render_list_omission_until_native_destruction(monkeyp
                 imgui.end()
 
         gui.update = update
-        gui.gui_renderer.set_gui(gui._draw_imgui)
-        gui.canvas.request_draw(gui._render_frame)
 
         def frame():
             glfw.poll_events()
@@ -135,21 +162,7 @@ def test_callback_survives_render_list_omission_until_native_destruction(monkeyp
         window = _window(viewport)
         assert window and viewport_id != imgui.get_main_viewport().id_
         address = _address(window)
-        assert address in host.callbacks and address in host.surfaces
-        surface = host.surfaces[address]
-        release = surface._release
-        released = []
-
-        def release_while_window_alive():
-            current = imgui.find_viewport_by_id(viewport_id)
-            native = _window(current) if current else None
-            assert native and _address(native) == address
-            assert all(size > 0 for size in glfw.get_window_size(native))
-            assert address in host.callbacks
-            released.append(True)
-            release()
-
-        monkeypatch.setattr(surface, "_release", release_while_window_alive)
+        assert address in host.callbacks
 
         # Model the ImGui frame where the native viewport still exists but is
         # omitted from the renderer-facing PlatformIO viewport list.
@@ -158,15 +171,14 @@ def test_callback_survives_render_list_omission_until_native_destruction(monkeyp
             patch.setattr(imgui, "get_platform_io", lambda: SimpleNamespace(
                 viewports=[v for v in platform_io().viewports if v.id_ != viewport_id]))
             frame()
-            assert address in host.callbacks and address in host.surfaces
+            assert address in host.callbacks
             callback = _callback(window, glfw._glfw.glfwSetCursorPosCallback)
             callback(window, 10, 10)
 
         state["show"] = False
         for _ in range(5):
             frame()
-        assert address not in host.callbacks and address not in host.surfaces
-        assert released == [True]
+        assert address not in host.callbacks
         assert not gui.errors
     finally:
         gui.close()

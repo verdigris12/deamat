@@ -5,7 +5,6 @@ from contextlib import contextmanager
 from imgui_bundle import imgui
 from matplotlib.backend_bases import Event, KeyEvent, MouseButton, MouseEvent, NavigationToolbar2
 from matplotlib.backends.backend_agg import FigureCanvasAgg
-import wgpu
 
 
 class _Canvas(FigureCanvasAgg):
@@ -61,8 +60,6 @@ class FigureView:
         self._dirty = True
         self._rendering = False
         self._texture = None
-        self._tex_ref = None
-        self._texture_size = None
         self._pixel_ratio = None
         self._pressed = set()
         self._last_mouse = None
@@ -202,7 +199,7 @@ class FigureView:
             self._dirty = True
             self._pixel_ratio = pixel_ratio
         if not self._dirty and not self.figure.stale:
-            return self._tex_ref, logical_size
+            return self._texture.ref, logical_size
         dpi = self.figure.dpi
         self._rendering = True
         try:
@@ -217,36 +214,17 @@ class FigureView:
         # Restoring DPI marks the figure stale; the uploaded render already
         # represents this figure at the requested pixel density.
         self.figure.stale = False
-        height, width = rgba.shape[:2]
-        self._ensure_texture(width, height)
-        self.gui.renderer.device.queue.write_texture(
-            destination={"texture": self._texture, "origin": (0, 0, 0)},
-            data=rgba,
-            data_layout={"bytes_per_row": width * 4, "rows_per_image": height},
-            size=(width, height, 1),
-        )
+        if self._texture is None:
+            self._texture = self.gui.create_image(rgba)
+        else:
+            self._texture.update(rgba)
         self._dirty = False
-        return self._tex_ref, logical_size
-
-    def _ensure_texture(self, width, height):
-        if self._texture_size == (width, height):
-            return
-        self._dispose_texture()
-        self._texture = self.gui.renderer.device.create_texture(
-            label=f"mpl_figure_{self.fig_id}", size=(width, height, 1),
-            format=wgpu.TextureFormat.rgba8unorm,
-            usage=wgpu.TextureUsage.COPY_DST | wgpu.TextureUsage.TEXTURE_BINDING,
-        )
-        self._tex_ref = self.gui.gui_renderer.backend.register_texture(self._texture.create_view())
-        self._texture_size = (width, height)
+        return self._texture.ref, logical_size
 
     def _dispose_texture(self):
         if self._texture is not None:
-            self.gui.gui_renderer.backend.unregister_texture(self._tex_ref)
-            self._texture.destroy()
+            self._texture.close()
             self._texture = None
-            self._tex_ref = None
-            self._texture_size = None
 
     def close(self):
         """Detach input and release GPU resources; the caller owns the Figure."""
